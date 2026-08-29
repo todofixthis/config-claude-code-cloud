@@ -32,6 +32,7 @@ Canonical copy: `todofixthis/config-claude-code-cloud`, path `cloud/CLAUDE.md`. 
 - **Always** prefer `rg` over `grep`
 - If a bash command fails with `command not found`, stop and escalate: don't install it, substitute it, or work around it — the user needs to know a required tool is missing from the environment
 - Check a claim about what a tool or platform does against the thing itself before asserting it: the tool's config in the repo, the workflow file, the live setting via its API. Documentation is not a source, including the repo's own — a doc saying the same thing is as likely to be where the error came from as it is to confirm it, and settings that live only in a platform (branch protections, default branches, secrets) have no file to contradict them
+- A `phx:`/`superpowers:`/`elements-of-style:` skill can be installed and still miss a session's first-turn skill listing — the plugin lands on disk before the session starts, so this is a same-session indexing lag, not a slow install. To use one from turn one, name it explicitly in the first message: an explicitly-typed name works even before that turn's listing catches up
 
 ## Git commits
 
