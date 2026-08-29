@@ -5,7 +5,7 @@ Bootstrap config for Phoenix's Claude Code on the web (cloud) environments — t
 ## Structure
 
 - `cloud/pointer.sh` — paste verbatim into the environment's **Setup script** field. Fetches and runs `cloud/setup.sh` below.
-- `cloud/setup.sh` — the real logic: installs `gh`, lefthook, hadolint, trufflehog, extra Python versions, and semgrep; writes `cloud/gh-config.yml` and `cloud/CLAUDE.md` (below) into place; registers the plugin marketplaces and enabled plugins in `~/.claude/settings.json`, then installs those plugins with `claude plugin install` (listing them in `settings.json` alone doesn't put them on disk).
+- `cloud/setup.sh` — the real logic: installs `gh`, lefthook, hadolint, trufflehog, extra Python versions, and semgrep; writes `cloud/gh-config.yml` and `cloud/CLAUDE.md` (below); syncs the `phx`, `superpowers`, and `elements-of-style` plugins into `~/.claude/skills/<name>/` (see "Plugins" below).
 - `cloud/CLAUDE.md` — personal user-level instructions. Cloud sessions don't carry over `~/.claude/CLAUDE.md` from a local machine (only repo-committed `CLAUDE.md` files do), so this is the only way to get it into cloud sessions at all.
 - `cloud/gh-config.yml` — `gh` CLI preferences. Note `git_protocol: https`, not `ssh` — cloud sessions have no SSH client, so `gh` needs HTTPS to have any credential to use.
 - `cloud/environment.env` — paste verbatim into the environment's **Environment variables** field.
@@ -18,11 +18,19 @@ Bootstrap config for Phoenix's Claude Code on the web (cloud) environments — t
 4. Paste `cloud/environment.env`'s content into **Environment variables**.
 5. Save. The setup script runs once, on the first session in this environment, and is cached (~7 days, or until the setup script text or allowed domains change) for every session after that.
 
+## Plugins
+
+`phx`, `superpowers`, and `elements-of-style` are skill libraries (superpowers also ships one `SessionStart` hook) — none of the three ship agents, commands, or MCP servers. `setup.sh` doesn't install them as plugins in the usual sense. It clones each plugin's own repo — not the shared `superpowers-marketplace` repo, which is just a pointer catalogue with no skill content of its own — and copies its `.claude-plugin/`, `skills/`, `hooks/`, `agents/`, `commands/`, and `.mcp.json` (whichever exist) straight into `~/.claude/skills/<name>/`.
+
+That's deliberate, not a shortcut: the marketplace path (`extraKnownMarketplaces` + `claude plugin install`) clones the plugin into `~/.claude/plugins/cache` fine, but run non-interactively from a setup script it never persists the "installed" record — `installed_plugins.json` comes out empty and the skills never load, even though `settings.json` looks correct. Claude Code separately auto-loads any directory at `~/.claude/skills/<name>/` that carries a `.claude-plugin/plugin.json`, as `<name>@skills-dir`, with no marketplace or `settings.json` entry — confirmed to work, hook included, by testing it in a session. `cloud/setup.sh` uses that path for all three plugins instead.
+
+One consequence: don't also enable these three via the marketplace path (`extraKnownMarketplaces`/`enabledPlugins` in `settings.json`) — an installed marketplace plugin takes precedence over a skills-dir plugin of the same name, so the skills-dir copy would silently stop loading.
+
 ## Making changes
 
 - **Editing `setup.sh`, `CLAUDE.md`, or `gh-config.yml`**: commit the change here, then bump the version comment at the top of `cloud/pointer.sh` and re-paste `pointer.sh`'s content into the environment's Setup script field. This step is the whole reason `pointer.sh` exists: the environment only re-runs its setup script (and rebuilds the cached snapshot) when *that field's own text* changes — never when the file it fetches does. Skipping the re-paste means the change sits in this repo but never reaches a session.
 - **Editing `pointer.sh` or `environment.env` itself**: re-paste directly, no version bump needed (the text already changed).
-- **Adding a plugin**: add it to the `extraKnownMarketplaces`/`enabledPlugins` block in `cloud/setup.sh`, then follow the bump-and-re-paste step above.
+- **Adding a plugin**: add a `sync_skills_dir_plugin` call for it in `cloud/setup.sh` (see "Plugins" above), then follow the bump-and-re-paste step above.
 - **A cloud session editing `~/.claude/CLAUDE.md` in place** (e.g. `phx:reflection` deciding to record a new pattern): that's the fetched copy, not this repo — the edit is invisible everywhere else and is gone at the next cache rebuild. `cloud/CLAUDE.md` itself carries this same warning, since that's what a session is reading right when it'd make this mistake.
 
 ## Why this exists instead of one script pasted straight into the dialog

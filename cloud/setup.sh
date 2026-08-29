@@ -89,62 +89,52 @@ fi
 
 log "stage 2 complete"
 
-## --- Stage 3: plugin marketplaces / auto-enabled plugins ---
-# Confirmed necessary, not just belt-and-braces: there's no account-level
-# sync that reaches this on its own — it has to land on disk somehow before
-# Claude Code launches, and this is that somehow.
+## --- Stage 3: plugins, synced straight into the skills-dir ---
+# The marketplace path (`claude plugin install`) clones the plugin into
+# ~/.claude/plugins/cache fine, but run non-interactively from this script
+# it never persists the "installed" record: installed_plugins.json comes
+# out empty and none of the plugins' skills load, even though
+# settings.json's enabledPlugins looks correct and the same command
+# registers correctly when run interactively inside a live session.
 #
-# Merge rather than overwrite, in case a prior run (before the ~7-day cache
-# expiry) already wrote this file.
-python3 - <<'PY_EOF'
-import json
-import os
+# Bypass that path entirely. Claude Code also auto-loads any directory at
+# ~/.claude/skills/<name>/ that carries a .claude-plugin/plugin.json, as
+# "<name>@skills-dir" — no marketplace, no `claude plugin install`, no
+# settings.json entry, and (confirmed live) it shows up in the skill
+# listing immediately, without a restart. phx, superpowers, and
+# elements-of-style already ship exactly the directory shape this
+# mechanism expects, so mirror each straight from its own repo — not the
+# superpowers-marketplace repo, which is just a pointer catalogue with no
+# skill content of its own.
+#
+# Don't also register these three via extraKnownMarketplaces/enabledPlugins:
+# an installed marketplace plugin takes precedence over a skills-dir plugin
+# of the same name, so the copy synced below would silently stop loading.
+sync_skills_dir_plugin() {
+    local name="$1" repo_url="$2" tmp
+    tmp="$(mktemp -d)"
 
-path = os.path.expanduser("~/.claude/settings.json")
-try:
-    with open(path) as f:
-        settings = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    settings = {}
+    if ! git clone --depth 1 --quiet "$repo_url" "$tmp"; then
+        log "warning: failed to clone $repo_url for $name, leaving skills/$name untouched"
+        rm -rf "$tmp"
+        return
+    fi
 
-settings.setdefault("extraKnownMarketplaces", {})
-settings["extraKnownMarketplaces"]["todofixthis"] = {
-    "source": {"source": "github", "repo": "todofixthis/phx-claude-siat"},
+    local dest=~/.claude/skills/"$name"
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    for part in .claude-plugin skills agents commands hooks .mcp.json; do
+        [ -e "$tmp/$part" ] || continue
+        cp -r "$tmp/$part" "$dest/$part" || log "warning: failed to copy $part for $name, plugin may be incomplete"
+    done
+    rm -rf "$tmp"
+    log "$name synced to skills-dir"
 }
-# Keyed by the marketplace's own declared "name" (see its marketplace.json),
-# not an arbitrary label: Claude Code resolves "plugin@marketplace" against
-# that name, so a mismatched key leaves the plugin permanently unresolved.
-settings["extraKnownMarketplaces"].pop("obra", None)
-settings["extraKnownMarketplaces"]["superpowers-marketplace"] = {
-    "source": {"source": "github", "repo": "obra/superpowers-marketplace"},
-}
 
-settings.setdefault("enabledPlugins", {})
-settings["enabledPlugins"].pop("superpowers@obra", None)
-settings["enabledPlugins"].pop("elements-of-style@obra", None)
-settings["enabledPlugins"]["phx@todofixthis"] = True
-settings["enabledPlugins"]["superpowers@superpowers-marketplace"] = True
-settings["enabledPlugins"]["elements-of-style@superpowers-marketplace"] = True
+sync_skills_dir_plugin phx "https://github.com/todofixthis/phx-claude-siat.git"
+sync_skills_dir_plugin superpowers "https://github.com/obra/superpowers.git"
+sync_skills_dir_plugin elements-of-style "https://github.com/obra/the-elements-of-style.git"
 
-os.makedirs(os.path.dirname(path), exist_ok=True)
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
-PY_EOF
-
-log "stage 3 complete: plugin marketplaces registered"
-
-## --- Stage 4: install the plugins ---
-# enabledPlugins above only marks these as auto-enabled — it doesn't put
-# the plugin on disk. Without this stage, `claude plugin list` reports
-# "No plugins installed" and none of the plugins' skills load, even
-# though settings.json looks correct. `claude plugin install` is
-# idempotent, so this is safe to re-run every time this script runs.
-for plugin in phx@todofixthis superpowers@superpowers-marketplace elements-of-style@superpowers-marketplace; do
-    claude plugin install "$plugin" -s user -y \
-        || log "warning: failed to install $plugin, continuing"
-done
-
-log "stage 4 complete: plugins installed"
+log "stage 3 complete: plugins synced to skills-dir"
 log "setup script finished"
 exit 0
