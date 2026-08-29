@@ -133,5 +133,18 @@ with open(path, "w") as f:
 PY_EOF
 
 log "stage 3 complete: plugin marketplaces registered"
+
+## --- Stage 4: install the plugins ---
+# enabledPlugins above only marks these as auto-enabled — it doesn't put
+# the plugin on disk. Without this stage, `claude plugin list` reports
+# "No plugins installed" and none of the plugins' skills load, even
+# though settings.json looks correct. `claude plugin install` is
+# idempotent, so this is safe to re-run every time this script runs.
+for plugin in phx@todofixthis superpowers@superpowers-marketplace elements-of-style@superpowers-marketplace; do
+    claude plugin install "$plugin" -s user -y \
+        || log "warning: failed to install $plugin, continuing"
+done
+
+log "stage 4 complete: plugins installed"
 log "setup script finished"
 exit 0
