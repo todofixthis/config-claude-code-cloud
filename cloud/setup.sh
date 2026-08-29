@@ -111,14 +111,20 @@ settings.setdefault("extraKnownMarketplaces", {})
 settings["extraKnownMarketplaces"]["todofixthis"] = {
     "source": {"source": "github", "repo": "todofixthis/phx-claude-siat"},
 }
-settings["extraKnownMarketplaces"]["obra"] = {
+# Keyed by the marketplace's own declared "name" (see its marketplace.json),
+# not an arbitrary label: Claude Code resolves "plugin@marketplace" against
+# that name, so a mismatched key leaves the plugin permanently unresolved.
+settings["extraKnownMarketplaces"].pop("obra", None)
+settings["extraKnownMarketplaces"]["superpowers-marketplace"] = {
     "source": {"source": "github", "repo": "obra/superpowers-marketplace"},
 }
 
 settings.setdefault("enabledPlugins", {})
+settings["enabledPlugins"].pop("superpowers@obra", None)
+settings["enabledPlugins"].pop("elements-of-style@obra", None)
 settings["enabledPlugins"]["phx@todofixthis"] = True
-settings["enabledPlugins"]["superpowers@obra"] = True
-settings["enabledPlugins"]["elements-of-style@obra"] = True
+settings["enabledPlugins"]["superpowers@superpowers-marketplace"] = True
+settings["enabledPlugins"]["elements-of-style@superpowers-marketplace"] = True
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
 with open(path, "w") as f:
