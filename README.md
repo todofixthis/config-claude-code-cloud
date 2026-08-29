@@ -5,7 +5,7 @@ Bootstrap config for Phoenix's Claude Code on the web (cloud) environments — t
 ## Structure
 
 - `cloud/pointer.sh` — paste verbatim into the environment's **Setup script** field. Fetches and runs `cloud/setup.sh` below.
-- `cloud/setup.sh` — the real logic: installs `gh`, lefthook, hadolint, trufflehog, extra Python versions, and semgrep; writes `cloud/gh-config.yml` and `cloud/CLAUDE.md` (below) into place; registers the plugin marketplaces and enabled plugins in `~/.claude/settings.json`.
+- `cloud/setup.sh` — the real logic: installs `gh`, lefthook, hadolint, trufflehog, extra Python versions, and semgrep; writes `cloud/gh-config.yml` and `cloud/CLAUDE.md` (below) into place; registers the plugin marketplaces and enabled plugins in `~/.claude/settings.json`, then installs those plugins with `claude plugin install` (listing them in `settings.json` alone doesn't put them on disk).
 - `cloud/CLAUDE.md` — personal user-level instructions. Cloud sessions don't carry over `~/.claude/CLAUDE.md` from a local machine (only repo-committed `CLAUDE.md` files do), so this is the only way to get it into cloud sessions at all.
 - `cloud/gh-config.yml` — `gh` CLI preferences. Note `git_protocol: https`, not `ssh` — cloud sessions have no SSH client, so `gh` needs HTTPS to have any credential to use.
 - `cloud/environment.env` — paste verbatim into the environment's **Environment variables** field.
