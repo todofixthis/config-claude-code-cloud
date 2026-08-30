@@ -61,11 +61,27 @@ TRUFFLEHOG_PID=$!
 
 # uv is already pre-installed in cloud sessions, but the snapshot can lag
 # upstream releases enough to warn on directives (e.g. `system-certs`) that
-# newer uv versions renamed or reinterpreted. Update it before adding the
-# extra Python versions and semgrep on top — each step logged separately so
-# a failure in one doesn't get lost in, or masked by, the others.
+# newer uv versions renamed or reinterpreted. `uv self update` needs GitHub's
+# release API, which this platform's own session proxy can deny even though
+# the rest of this script's GitHub traffic goes through fine — fall back to
+# PyPI (confirmed always reachable) and copy the fresh binary over the
+# pre-installed one so PATH keeps resolving to the update, not the original.
+# Update before adding the extra Python versions and semgrep on top — each
+# step logged separately so a failure in one doesn't get lost in, or masked
+# by, the others.
 (
-    uv self update || log "warning: uv self-update failed, continuing"
+    UV_BIN="$(command -v uv || true)"
+    if ! uv self update; then
+        log "warning: uv self-update failed, falling back to pip install --upgrade uv"
+        if pip install --upgrade uv; then
+            PIP_UV_BIN="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')/uv"
+            if [ -n "$UV_BIN" ] && [ -x "$PIP_UV_BIN" ] && [ "$UV_BIN" != "$PIP_UV_BIN" ]; then
+                cp "$PIP_UV_BIN" "$UV_BIN"
+            fi
+        else
+            log "warning: pip install --upgrade uv also failed, continuing with pre-installed uv"
+        fi
+    fi
     uv python install 3.12 3.13 3.14 || log "warning: uv python install failed, continuing"
     uv tool install --python 3.13 semgrep || log "warning: uv tool install semgrep failed, continuing"
 ) &
