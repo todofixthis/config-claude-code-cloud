@@ -59,12 +59,16 @@ HADOLINT_PID=$!
 ) || log "warning: trufflehog install failed, continuing" &
 TRUFFLEHOG_PID=$!
 
-# uv is already pre-installed in cloud sessions — only the extra Python
-# versions and semgrep need adding on top of it.
+# uv is already pre-installed in cloud sessions, but the snapshot can lag
+# upstream releases enough to warn on directives (e.g. `system-certs`) that
+# newer uv versions renamed or reinterpreted. Update it before adding the
+# extra Python versions and semgrep on top — each step logged separately so
+# a failure in one doesn't get lost in, or masked by, the others.
 (
-    uv python install 3.12 3.13 3.14
-    uv tool install --python 3.13 semgrep
-) || log "warning: uv python/semgrep install failed, continuing" &
+    uv self update || log "warning: uv self-update failed, continuing"
+    uv python install 3.12 3.13 3.14 || log "warning: uv python install failed, continuing"
+    uv tool install --python 3.13 semgrep || log "warning: uv tool install semgrep failed, continuing"
+) &
 UV_PID=$!
 
 wait "$APT_PID" "$HADOLINT_PID" "$TRUFFLEHOG_PID" "$UV_PID"
