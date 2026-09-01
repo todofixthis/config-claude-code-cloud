@@ -56,6 +56,10 @@ This supersedes the harness's default PR-body footer — extend that line, don't
 
 Commit messages are exempt: they keep the `Co-Authored-By:` trailer, which GitHub parses into co-author attribution.
 
+A new workflow's `workflow_dispatch` can't be fired via the API until the workflow file exists on the repo's default branch — merge before trying to manually trigger a just-added workflow, not after.
+
+`actions/delete-package-versions` needs a one-time manual grant for container/npm/nuget packages before the default `GITHUB_TOKEN` can delete versions: the package's own Settings → Manage Actions Access, then assign the Admin role to the repo. Maven/Rubygems packages hosted in the same repo don't need this.
+
 ## Skill resolution
 
 Where `phx` wraps a `superpowers` skill of the same name, always invoke the `phx:` one.
