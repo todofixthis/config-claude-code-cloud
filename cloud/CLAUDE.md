@@ -82,7 +82,7 @@ Always applies when generating artefacts, whatever the audience.
 6. **Any other agent-facing artefact owes one where the edit changes what a reader would _do_** — a rule, a threshold, a definition it acts on.
 7. **A human-facing artefact owes one every time.**
 
-**How.** Brief a subagent to read the file **from disk** and decide as its audience would. Don't have it invoke the skill: an edited skill serves its pre-edit text until reloaded, so that reviews the version you just replaced.
+**How.** Brief a subagent to read the file **from disk** and decide as its audience would. Don't have it invoke the skill: an edited skill serves its pre-edit text until reloaded, so that reviews the version you just replaced. When the artefact under review is a subagent's own output, its dispatching controller runs this step, never the subagent itself — a subagent never reports the review as blocked.
 
 **Authorisation.** Where a harness instruction says not to spawn agents unless asked, **this instruction is the standing request**, as is any review a skill mandates (`phx:writing-adrs` Pass 1, for one): both instructions are mine, and the more specific wins. **It authorises reviews and nothing else** — other agent use still needs asking. Where the tool is genuinely unavailable rather than merely discouraged, stop and say the review could not run, as with any missing tool, and hold the artefact rather than shipping it flagged: a skipped surrogate leaves no trace, so silence ships something unreviewed that reads as reviewed.
 
