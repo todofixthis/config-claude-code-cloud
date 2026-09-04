@@ -116,6 +116,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: publish-shared-claude-md
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -133,31 +137,38 @@ jobs:
           token: ${{ secrets.CONFIG_CLAUDE_CODE_CLOUD_PUSH_TOKEN }}
           path: config-claude-code-cloud
 
-      - name: Copy shared file and regenerate cloud/CLAUDE.md
+      - name: Copy shared file, regenerate, and check for changes
+        id: regenerate
+        working-directory: config-claude-code-cloud
         run: |
-          cp config-claude/CLAUDE.shared.md config-claude-code-cloud/cloud/CLAUDE.shared.md
-          cd config-claude-code-cloud
+          cp ../config-claude/CLAUDE.shared.md cloud/CLAUDE.shared.md
           bash cloud/generate-claude-md.sh
+          git add cloud/CLAUDE.shared.md cloud/CLAUDE.md
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Bump pointer.sh version comment
+        if: steps.regenerate.outputs.changed == 'true'
         working-directory: config-claude-code-cloud
         run: |
           version="$(date -u +%Y-%m-%d)-$(git -C ../config-claude rev-parse --short HEAD)"
           sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
+          git add cloud/pointer.sh
 
       - name: Commit and push
+        if: steps.regenerate.outputs.changed == 'true'
         working-directory: config-claude-code-cloud
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add cloud/CLAUDE.shared.md cloud/CLAUDE.md cloud/pointer.sh
-          if git diff --cached --quiet; then
-            echo "No changes to publish"
-            exit 0
-          fi
           git commit -m "Sync cloud/CLAUDE.shared.md from config-claude@${{ github.sha }}"
           git push
 ```
+
+The diff check (step `regenerate`) runs against `cloud/CLAUDE.shared.md` and `cloud/CLAUDE.md` only, before `cloud/pointer.sh` is touched at all — staging the version bump first would make the guard useless, since `pointer.sh`'s timestamp changes on every run regardless of whether the actual content changed.
 
 - [ ] **Step 2: Validate YAML syntax**
 
@@ -168,25 +179,35 @@ python3 -c "import yaml, sys; yaml.safe_load(open('.github/workflows/publish-sha
 
 Expected: prints `YAML valid`. (No `actionlint` or `yamllint` is installed in this environment — this is a syntax check only, not a schema/semantics check. GitHub validates the workflow schema itself on push; a schema error would show as a failed/skipped run in the Actions tab, not a local failure here.)
 
-- [ ] **Step 3: Dry-run the workflow's shell logic against real local checkouts**
+- [ ] **Step 3: Dry-run the workflow's shell logic against real local checkouts, both branches of the no-op guard**
 
-The `actions/checkout` steps and the cross-repo push can't be exercised locally (no GitHub Actions runner, no way to test the PAT before it exists). What *can* be verified locally is that the shell logic the workflow runs is correct, using the already-present local clones in place of the checkout steps:
+The `actions/checkout` steps and the cross-repo push can't be exercised locally (no GitHub Actions runner, no way to test the PAT before it exists). What *can* be verified locally is that the shell logic the workflow runs is correct — including that the no-op guard actually no-ops when nothing changed, and actually proceeds when something did, using the already-present local clones in place of the checkout steps:
 
 ```bash
 cd /home/user
 cp -r config-claude-code-cloud /tmp/gha-dry-run-cccc
-cp config-claude/CLAUDE.shared.md /tmp/gha-dry-run-cccc/cloud/CLAUDE.shared.md
 cd /tmp/gha-dry-run-cccc
+
+# Case 1: nothing changed (cloud/CLAUDE.shared.md already matches config-claude's copy)
+cp /home/user/config-claude/CLAUDE.shared.md cloud/CLAUDE.shared.md
 bash cloud/generate-claude-md.sh
+git add cloud/CLAUDE.shared.md cloud/CLAUDE.md
+if git diff --cached --quiet; then echo "changed=false"; else echo "changed=false-BUT-DIFF-FOUND (bug)"; fi
+git reset --quiet
+
+# Case 2: something changed
+echo "- a genuinely different line, for this dry run only" >> cloud/CLAUDE.shared.md
+bash cloud/generate-claude-md.sh
+git add cloud/CLAUDE.shared.md cloud/CLAUDE.md
+if git diff --cached --quiet; then echo "changed=true-BUT-NO-DIFF-FOUND (bug)"; else echo "changed=true"; fi
 version="$(date -u +%Y-%m-%d)-$(git -C /home/user/config-claude rev-parse --short HEAD)"
 sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
 head -5 cloud/pointer.sh
-git add cloud/CLAUDE.shared.md cloud/CLAUDE.md cloud/pointer.sh
-git diff --cached --stat
+
 cd /home/user && rm -rf /tmp/gha-dry-run-cccc
 ```
 
-Expected: `cloud/generate-claude-md.sh` prints `cloud/CLAUDE.md regenerated`; `cloud/pointer.sh`'s first lines show the new `# Bootstrap version: <date>-<short-sha>` line (matching the `<short-sha>` of `config-claude`'s current `HEAD`); `git diff --cached --stat` shows changes only if the copied `CLAUDE.shared.md` actually differs from the dry-run clone's existing one, or if the version-comment line changed (it always will, since the sha is fresh) — confirming the no-op guard's condition (`git diff --cached --quiet`) is meaningful and not vacuously true or false. Delete the scratch clone afterward regardless of outcome.
+Expected: Case 1 prints exactly `changed=false` (proves the guard actually no-ops on a real no-op, which is what the earlier review round found broken when the version bump ran unconditionally first). Case 2 prints exactly `changed=true`, and `cloud/pointer.sh`'s first lines show the new `# Bootstrap version: <date>-<short-sha>` line, confirming the bump only ever runs on the branch gated by `changed == 'true'`. Delete the scratch clone afterward regardless of outcome.
 
 - [ ] **Step 4: Commit**
 
@@ -196,11 +217,11 @@ Run `git status` to catch any related unstaged or untracked files, then use the 
 
 - [ ] **Step 1: Rewrite PR #9's description** (`todofixthis/config-claude-code-cloud`)
 
-Use `mcp__github__update_pull_request` (or equivalent) to replace the body, reflecting that `cloud/CLAUDE.shared.md` is now a synced mirror (not canonical) and that `config-claude`'s new workflow publishes to it — cite the actual commits on this branch (`5262787`, `fde66b5`, plus this plan's Task 1/2 commits' SHAs once known). Re-run the writing-style passes (NZ-English, conciseness, audience-surrogate — a PR description is an explicit rule-4 durable artefact) on the new body before posting, per this repo's own `cloud/CLAUDE.shared.md`.
+Run `git log --oneline main..HEAD` in `/home/user/config-claude-code-cloud` first, to get the actual commit SHAs for this branch — don't leave a placeholder phrase like "once known" in the posted body. Use `mcp__github__update_pull_request` (or equivalent) to replace the body, reflecting that `cloud/CLAUDE.shared.md` is now a synced mirror (not canonical) and that `config-claude`'s new workflow publishes to it, citing the real SHAs from that log. Re-run the writing-style passes (NZ-English, conciseness, audience-surrogate — a PR description is an explicit rule-4 durable artefact) on the new body before posting, per this repo's own `cloud/CLAUDE.shared.md`.
 
 - [ ] **Step 2: Rewrite PR #1's description** (`todofixthis/config-claude`)
 
-Same treatment, reflecting that `CLAUDE.shared.md` is now canonical here, `generate-claude-md.sh` no longer does a network fetch, and a new workflow requires a manually-created PAT secret (name it, name the required scope, and state plainly that this PR cannot merge safely — or rather, can merge, but the workflow will fail loudly until the secret exists — without that human step). This is the PR body's job to say clearly, since it's the point where the human decides whether to add the secret before or after merging.
+Run `git log --oneline main..HEAD` in `/home/user/config-claude` first, for the same reason — cite real SHAs, not a placeholder. Same treatment otherwise, reflecting that `CLAUDE.shared.md` is now canonical here, `generate-claude-md.sh` no longer does a network fetch, and a new workflow requires a manually-created PAT secret (name it, name the required scope, and state plainly that this PR cannot merge safely — or rather, can merge, but the workflow will fail loudly until the secret exists — without that human step). This is the PR body's job to say clearly, since it's the point where the human decides whether to add the secret before or after merging.
 
 - [ ] **Step 3: Re-verify both generated files reproduce cleanly**
 
