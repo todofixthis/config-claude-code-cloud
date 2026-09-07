@@ -69,8 +69,12 @@ on:
       - CLAUDE.shared.md
   workflow_dispatch: {}
 
+# write, not read: the default GITHUB_TOKEN this grants is what the
+# self-checkout below pushes back to config-claude with — the separate
+# cross-repo push to config-claude-code-cloud always uses its own PAT
+# regardless of this setting.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: generate-and-publish-claude-md
@@ -101,9 +105,13 @@ jobs:
       - name: Check whether CLAUDE.shared.md changed
         id: shared_check
         run: |
+          before="${{ github.event.before }}"
+          if [ "$before" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$before" 2>/dev/null; then
+            before="$(git hash-object -t tree /dev/null)"
+          fi
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "shared_changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -qx "CLAUDE.shared.md"; then
+          elif git diff --name-only "$before" "${{ github.sha }}" | grep -qx "CLAUDE.shared.md"; then
             echo "shared_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "shared_changed=false" >> "$GITHUB_OUTPUT"
@@ -124,7 +132,7 @@ jobs:
         working-directory: config-claude-code-cloud
         run: |
           {
-            echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md here, or CLAUDE.shared.md in todofixthis/config-claude, then re-run cloud/generate-claude-md.sh. -->"
+            echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md in todofixthis/config-claude-code-cloud, or CLAUDE.shared.md in todofixthis/config-claude, then re-run cloud/generate-claude-md.sh. -->"
             echo
             cat cloud/CLAUDE.cloud-only.md
             echo
@@ -215,6 +223,12 @@ else
 fi
 
 cd /tmp/gha-dry-run-cccc
+# Simulate the post-Task-2 state: at the point this workflow actually runs
+# for real, Task 2 has already deleted cloud/CLAUDE.shared.md from
+# config-claude-code-cloud. This scratch clone was copied from the repo as
+# it stands *before* Task 2 runs, so remove it here to test the invariant
+# meaningfully rather than against a file this step didn't itself create.
+rm -f cloud/CLAUDE.shared.md
 {
   echo "<!-- GENERATED FILE -->"
   echo
@@ -228,12 +242,12 @@ git diff --cached --quiet && echo "BUG: expected cloud/CLAUDE.md to change" || e
 version="$(date -u +%Y-%m-%d)-$(git -C /tmp/gha-dry-run-cc rev-parse --short HEAD)"
 sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
 head -5 cloud/pointer.sh
-grep -q "CLAUDE.shared.md" <(git status --short) && echo "BUG: CLAUDE.shared.md must never appear in config-claude-code-cloud's working tree" || echo "No CLAUDE.shared.md in config-claude-code-cloud: OK"
+[ -e cloud/CLAUDE.shared.md ] && echo "BUG: CLAUDE.shared.md must never exist in config-claude-code-cloud's working tree" || echo "No CLAUDE.shared.md in config-claude-code-cloud: OK"
 
 cd /home/user && rm -rf /tmp/gha-dry-run-cc /tmp/gha-dry-run-cccc
 ```
 
-Expected: `shared_changed=true: OK`, `cloud/CLAUDE.md changed: OK`, the bumped version line, and `No CLAUDE.shared.md in config-claude-code-cloud: OK` — the last check is the plan's most important invariant (Global Constraints, first bullet).
+Expected: `shared_changed=true: OK`, `cloud/CLAUDE.md changed: OK`, the bumped version line, and `No CLAUDE.shared.md in config-claude-code-cloud: OK` — the last check tests the file's *existence*, not a diff against it, since a diff-based check (`git status --short`) cannot distinguish "file absent" from "file present and unchanged," and this repo currently has the file present and identical to `config-claude`'s copy until Task 2 deletes it for real.
 
 - [ ] **Step 6: Commit**
 
@@ -261,11 +275,12 @@ rm cloud/CLAUDE.shared.md
 
 ```bash
 #!/bin/bash
-# Regenerates cloud/CLAUDE.md from cloud/CLAUDE.cloud-only.md (this repo) and
-# CLAUDE.shared.md, fetched live from todofixthis/config-claude (private —
-# never mirrored into this repo) via the GitHub Contents API. Locally this
-# uses your own `gh auth login`; in CI, the workflow sets GH_TOKEN from the
-# CONFIG_CLAUDE_READ_TOKEN secret — see README.md for how to create it.
+# Regenerates cloud/CLAUDE.md from cloud/CLAUDE.cloud-only.md
+# (todofixthis/config-claude-code-cloud) and CLAUDE.shared.md, fetched live
+# from todofixthis/config-claude (private — never mirrored into
+# todofixthis/config-claude-code-cloud) via the GitHub Contents API. Locally
+# this uses your own `gh auth login`; in CI, the workflow sets GH_TOKEN from
+# the CONFIG_CLAUDE_READ_TOKEN secret — see README.md for how to create it.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -274,7 +289,7 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
 {
-    echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md here, or CLAUDE.shared.md in todofixthis/config-claude, then re-run cloud/generate-claude-md.sh. -->"
+    echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md in todofixthis/config-claude-code-cloud, or CLAUDE.shared.md in todofixthis/config-claude, then re-run cloud/generate-claude-md.sh. -->"
     echo
     cat CLAUDE.cloud-only.md
     echo
@@ -297,8 +312,10 @@ on:
       - cloud/CLAUDE.cloud-only.md
   workflow_dispatch: {}
 
+# write, not read: the default GITHUB_TOKEN this grants is what the
+# self-checkout below pushes back to this repo with.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: generate-claude-md
@@ -346,32 +363,50 @@ python3 -c "import yaml, sys; yaml.safe_load(open('.github/workflows/generate-cl
 The `gh api repos/todofixthis/config-claude/contents/CLAUDE.shared.md` call cannot be exercised from this session — confirmed by testing it directly: this sandbox's `GH_TOKEN`/`GITHUB_TOKEN` are proxy placeholders (`proxy-injected`) and the Contents API 404s through them, even though the same file is fetchable via Anthropic's own MCP GitHub integration using different credentials. This is not evidence the design is wrong — a real `gh auth login` (Phoenix's own machine) or a real `CONFIG_CLAUDE_READ_TOKEN` (CI) talks to `api.github.com` directly with no proxy in between. What this step tests instead: the failure path, and the concatenation logic once given real shared content by another means.
 
 ```bash
-cd /home/user/config-claude-code-cloud
+cd /home/user
 
-# Failure path: gh unauthenticated/unreachable is exactly what happens today,
-# since the real secret doesn't exist yet — confirm it fails closed.
+# Failure path, against the real (unstubbed) script and the real repo:
+# gh unauthenticated/unreachable is exactly what happens today, since the
+# real secret doesn't exist yet — confirm it fails closed.
+cd config-claude-code-cloud
 cp cloud/CLAUDE.md /tmp/claude-md-good-copy 2>/dev/null || touch /tmp/claude-md-good-copy
 bash cloud/generate-claude-md.sh; echo "exit: $?"
 diff /tmp/claude-md-good-copy cloud/CLAUDE.md 2>/dev/null && echo "cloud/CLAUDE.md unchanged: OK"
 rm /tmp/claude-md-good-copy
+cd /home/user
 
-# Concatenation logic, with the live fetch stubbed by a local copy fetched
-# via the MCP GitHub tool instead of gh api (same source file, same content,
-# different — working — client):
-cp /home/user/config-claude/CLAUDE.shared.md /tmp/claude-shared-stub.md
-{
-    echo "<!-- GENERATED FILE -->"
-    echo
-    cat cloud/CLAUDE.cloud-only.md
-    echo
-    cat /tmp/claude-shared-stub.md
-} > /tmp/cloud-claude-md-stubbed
-head -5 /tmp/cloud-claude-md-stubbed
-wc -l /tmp/cloud-claude-md-stubbed
-rm /tmp/claude-shared-stub.md /tmp/cloud-claude-md-stubbed
+# Success path: run the real, unmodified cloud/generate-claude-md.sh — in a
+# scratch copy, not the live checkout — with `gh` shimmed on PATH so the
+# script's own logic (mktemp, trap, cd, the header, the ordering of the two
+# `cat`s) runs for real, rather than a hand-written reimplementation that
+# could pass while the actual script is broken.
+cp -r config-claude-code-cloud /tmp/gha-dry-run-cccc
+mkdir -p /tmp/gh-stub-bin
+cat > /tmp/gh-stub-bin/gh <<'STUB'
+#!/bin/bash
+# Test stub standing in for the real `gh` CLI, for the one call
+# cloud/generate-claude-md.sh makes: emits the base64 of a local copy of
+# CLAUDE.shared.md, as if `gh api ... --jq '.content'` had returned it.
+if [ "$1" = "api" ] && [[ "$2" == repos/todofixthis/config-claude/contents/CLAUDE.shared.md* ]]; then
+    base64 -w0 /tmp/claude-shared-stub-source.md
+    exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+STUB
+chmod +x /tmp/gh-stub-bin/gh
+cp config-claude/CLAUDE.shared.md /tmp/claude-shared-stub-source.md
+
+cd /tmp/gha-dry-run-cccc
+PATH="/tmp/gh-stub-bin:$PATH" bash cloud/generate-claude-md.sh
+head -5 cloud/CLAUDE.md
+diff <(tail -n +3 cloud/CLAUDE.md) <(cat cloud/CLAUDE.cloud-only.md; echo; cat /tmp/claude-shared-stub-source.md) && echo "DIFF CLEAN"
+
+cd /home/user
+rm -rf /tmp/gha-dry-run-cccc /tmp/gh-stub-bin /tmp/claude-shared-stub-source.md
 ```
 
-Expected: the real script run exits non-zero (no working `gh` auth) and leaves `cloud/CLAUDE.md` unchanged, proving the failure path is safe; the stubbed concatenation produces a well-formed file with the expected header and a line count consistent with both source files, proving the logic the script wraps around the live fetch is correct. Note in the commit message and PR description that the live-fetch call itself remains unverified pending the real secret.
+Expected: the unstubbed run against the real repo exits non-zero (no working `gh` auth) and leaves `cloud/CLAUDE.md` unchanged, proving the failure path is safe; the shimmed run of the real, unmodified script prints `cloud/CLAUDE.md regenerated`, and the `diff` against a fresh concatenation of the two real source files is clean, proving the script's own logic — not a hand-written stand-in for it — is correct end-to-end except for the one call the shim replaces. Note in the commit message and PR description that the live `gh api` call itself remains unverified pending the real secret.
 
 - [ ] **Step 6: Commit**
 
