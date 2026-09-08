@@ -7,13 +7,11 @@ on:
       - cloud/CLAUDE.cloud-only.md
   workflow_dispatch: {}
 
-# contents: write for the branch push below; pull-requests: write to open
-# and merge the PR main's branch-protection ruleset requires — that
-# ruleset blocks every direct push to main, this repo's own token
-# included, so a straight `git push` here always fails closed (GH013).
+# Default GITHUB_TOKEN goes unused below — the checkout and push both run
+# as the CLAUDE_MD_BOT_APP_ID app instead, a bypass actor on main's ruleset
+# (see README.md). contents: read is enough for whatever this token does touch.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: generate-claude-md
@@ -22,38 +20,36 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.CONFIG_CLAUDE_READ_TOKEN }}
     steps:
+      - name: Generate a bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.CLAUDE_MD_BOT_APP_ID }}
+          private-key: ${{ secrets.CLAUDE_MD_BOT_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ steps.bot-token.outputs.token }}
 
       - name: Regenerate cloud/CLAUDE.md
+        env:
+          GH_TOKEN: ${{ secrets.CONFIG_CLAUDE_READ_TOKEN }}
         run: bash cloud/generate-claude-md.sh
 
-      - name: Check for changes and bump version
-        id: check
+      - name: Commit and push
         run: |
           git add cloud/CLAUDE.md
           if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
-            sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
-            git add cloud/pointer.sh
+            echo "⏭️ no changes to cloud/CLAUDE.md"
+            exit 0
           fi
-
-      - name: Open and merge a PR with the regenerated file
-        if: steps.check.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          branch="generate-claude-md-${{ github.run_id }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
+          version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
+          sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
+          git add cloud/pointer.sh
+          git config user.name "config-claude-md-bot[bot]"
+          git config user.email "config-claude-md-bot[bot]@users.noreply.github.com"
           git commit -m "Regenerate cloud/CLAUDE.md"
-          git push -u origin "$branch"
-          pr_url="$(gh pr create --repo todofixthis/config-claude-code-cloud --title "Regenerate cloud/CLAUDE.md" --body "Automated regeneration, triggered by cloud/CLAUDE.cloud-only.md changing on main." --base main --head "$branch")"
-          gh pr merge --merge --delete-branch "$pr_url"
+          git push || (git fetch origin main && git rebase origin/main && git push)
+          echo "✅ pushed regenerated cloud/CLAUDE.md"
