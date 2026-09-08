@@ -20,6 +20,8 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.CONFIG_CLAUDE_READ_TOKEN }}
     steps:
       - name: Generate a bot token
         id: bot-token
@@ -33,23 +35,30 @@ jobs:
         with:
           token: ${{ steps.bot-token.outputs.token }}
 
-      - name: Regenerate cloud/CLAUDE.md
-        env:
-          GH_TOKEN: ${{ secrets.CONFIG_CLAUDE_READ_TOKEN }}
-        run: bash cloud/generate-claude-md.sh
-
-      - name: Commit and push
+      - name: Regenerate, commit, and push
         run: |
-          git add cloud/CLAUDE.md
-          if git diff --cached --quiet; then
-            echo "⏭️ no changes to cloud/CLAUDE.md"
-            exit 0
-          fi
-          version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
-          sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
-          git add cloud/pointer.sh
           git config user.name "config-claude-md-bot[bot]"
           git config user.email "config-claude-md-bot[bot]@users.noreply.github.com"
-          git commit -m "Regenerate cloud/CLAUDE.md"
-          git push || (git fetch origin main && git rebase origin/main && git push)
-          echo "✅ pushed regenerated cloud/CLAUDE.md"
+          bash cloud/generate-claude-md.sh
+          for attempt in 1 2 3 4 5; do
+            git add cloud/CLAUDE.md
+            if git diff --cached --quiet; then
+              echo "⏭️ no changes to cloud/CLAUDE.md"
+              exit 0
+            fi
+            version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
+            sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
+            git add cloud/pointer.sh
+            git commit -m "Regenerate cloud/CLAUDE.md"
+            if git push; then
+              echo "✅ pushed regenerated cloud/CLAUDE.md"
+              exit 0
+            fi
+            echo "⚠️ push rejected (attempt ${attempt}/5) — re-syncing with origin/main and retrying"
+            git fetch origin main
+            git reset --hard origin/main
+            bash cloud/generate-claude-md.sh
+            sleep 2
+          done
+          echo "❌ giving up after 5 attempts"
+          exit 1
