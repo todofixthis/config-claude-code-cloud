@@ -2,7 +2,7 @@
 # Paste this file's content, verbatim, into the cloud environment's
 # "Setup script" field at claude.ai/code.
 #
-# Bootstrap version: 2026-09-02-01
+# Bootstrap version: 2026-09-04-01
 #
 # The environment only re-runs its Setup script (and rebuilds its cached
 # snapshot) when THIS text changes — not when the remote setup.sh below
