@@ -7,10 +7,13 @@ on:
       - cloud/CLAUDE.cloud-only.md
   workflow_dispatch: {}
 
-# write, not read: the default GITHUB_TOKEN this grants is what the
-# self-checkout below pushes back to this repo with.
+# contents: write for the branch push below; pull-requests: write to open
+# and merge the PR main's branch-protection ruleset requires — that
+# ruleset blocks every direct push to main, this repo's own token
+# included, so a straight `git push` here always fails closed (GH013).
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: generate-claude-md
@@ -28,17 +31,29 @@ jobs:
       - name: Regenerate cloud/CLAUDE.md
         run: bash cloud/generate-claude-md.sh
 
-      - name: Check for changes, bump version, commit, and push
+      - name: Check for changes and bump version
+        id: check
         run: |
           git add cloud/CLAUDE.md
           if git diff --cached --quiet; then
-            echo "No changes to publish"
-            exit 0
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
+            sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
+            git add cloud/pointer.sh
           fi
-          version="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
-          sed -i "s/^# Bootstrap version: .*/# Bootstrap version: ${version}/" cloud/pointer.sh
-          git add cloud/pointer.sh
+
+      - name: Open and merge a PR with the regenerated file
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="generate-claude-md-${{ github.run_id }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
           git commit -m "Regenerate cloud/CLAUDE.md"
-          git push
+          git push -u origin "$branch"
+          pr_url="$(gh pr create --repo todofixthis/config-claude-code-cloud --title "Regenerate cloud/CLAUDE.md" --body "Automated regeneration, triggered by cloud/CLAUDE.cloud-only.md changing on main." --base main --head "$branch")"
+          gh pr merge --merge --delete-branch "$pr_url"
