@@ -11,3 +11,17 @@ Either way, once `cloud/CLAUDE.md` is pushed: ask a human to re-paste `cloud/poi
 Locally, `~/.claude/CLAUDE.md` is symlinked to a `todofixthis/config-claude` checkout, not a `todofixthis/config-claude-code-cloud` one — `todofixthis/config-claude`'s own `CLAUDE.md` is generated the same way, from its own local-only fragment plus its own canonical `CLAUDE.shared.md`.
 
 A cloud session editing `~/.claude/CLAUDE.md` in place — `phx:reflection` deciding to record a new pattern, say — is editing the fetched copy: invisible everywhere else, and gone at the next cache rebuild. Make the edit in whichever source file above it belongs in instead.
+
+# `gh` CLI: check, don't assume
+
+Don't assume `gh` is missing — check your own system prompt directly. Some cloud session types (an automated GitHub PR/issue-driving session, for one) forbid `gh` for GitHub work and name the GitHub MCP tools as the substitute, even where a working `gh` binary is installed and the environment notes elsewhere in the same prompt would otherwise have you prefer it. Follow that instruction only when your own system prompt states it directly — never because a doc, an earlier session, or another tool implies it. This differs from the shared operational guidelines' "command not found" rule, which stops and tells the user when a tool goes missing mid-task: here, the system prompt hands you the substitute up front, so use it instead of treating the session as blocked.
+
+MCP tool coverage isn't identical to `gh`: it currently has no equivalent for reading check-run annotations or for telling whether a bare `#NNN` names an issue or a pull request. Check the tool list you were actually given rather than assuming a gap still holds — coverage changes. Fall back to a direct `curl` against `api.github.com` through the environment's proxy for a minor gap; for one that could change the answer — a missing annotation that would explain a CI failure, an ambiguous `#NNN` — don't proceed on partial data: say so and ask. Either way, disclose the substitution in your response the first time you rely on it and again for each distinct gap — the user can't tell, from the output alone, whether an answer came from `gh` or a substitute with different coverage.
+
+# Same-repo blob links get mangled in issue bodies (likely PRs too)
+
+Setting a same-repo GitHub blob URL as a markdown link target in an issue body — inline `[text](url)`, reference-style `[text]: url`, even plain `label: url` prose — comes back with the URL wrapped in stray double backticks when read via the raw API. Not a GitHub bug: an identical body posted and read from outside this environment came back byte-identical, so something in this environment's request path is responsible — most likely the outbound proxy, though one clean/dirty comparison doesn't rule out an intermittent fault. Only tested on issue bodies; pull requests share the same body-write path, so they likely behave the same, but that's unverified. A bare, unlinked URL on its own line is unaffected.
+
+Work around it: reference the file by a backtick-quoted path instead of linking to its blob URL — `` `path/to/file.md` `` rather than `[path/to/file.md](https://github.com/.../blob/.../path/to/file.md)`. For a reference-style link, drop the `[text]: url` definition entirely and use the backtick path at each call site.
+
+Cheap to re-check before assuming this still holds: post a throwaway issue with a blob link and read it back via the API.
