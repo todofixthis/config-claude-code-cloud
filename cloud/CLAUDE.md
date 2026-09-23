@@ -14,6 +14,12 @@ Locally, `~/.claude/CLAUDE.md` is symlinked to a `todofixthis/config-claude` che
 
 A cloud session editing `~/.claude/CLAUDE.md` in place — `phx:reflection` deciding to record a new pattern, say — is editing the fetched copy: invisible everywhere else, and gone at the next cache rebuild. Make the edit in whichever source file above it belongs in instead.
 
+# `gh` CLI: check, don't assume
+
+Some cloud session types — an automated PR/issue-driving session, for one — have a system prompt that forbids `gh` for GitHub work and names the GitHub MCP tools instead, even where a working `gh` is installed and the same prompt's environment notes list it. Follow that ban only when your own system prompt states it, never because a doc, an earlier session or another tool implies it. Unlike the shared "command not found" rule, the ban doesn't block you: the prompt names the substitute up front, so use it.
+
+The MCP tools don't cover everything `gh` does — reading check-run annotations, for one, as of September 2026 — so check the tools you were given, deferred ones included, rather than assume a gap still holds. A prompt that bans `gh` usually bans direct GitHub API calls too, so `curl` is no way round a gap. Where a gap could change the answer, say what you couldn't read and ask the user to paste it or confirm you should go on without it — never to lift the ban.
+
 # About the user
 
 - Phoenix, Principal Software Engineer - pitch explanations there and skip the fundamentals
