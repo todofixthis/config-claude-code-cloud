@@ -45,11 +45,24 @@ REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud
 ) || log "warning: gh/lefthook install failed, continuing" &
 APT_PID=$!
 
-# hadolint: Dockerfile linter, single binary from GitHub releases.
+# hadolint: Dockerfile linter, single binary from GitHub releases, verified
+# against the release's checksum file. A release landing between the two
+# downloads fails the check and is logged, never installed. Steps are chained
+# with && because bash ignores set -e in a subshell on the left of ||, so
+# adding it here would silently change nothing.
 (
     HADOLINT_ARCH=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "x86_64")
-    curl -sLo /usr/local/bin/hadolint "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-${HADOLINT_ARCH}"
-    chmod +x /usr/local/bin/hadolint
+    HADOLINT_BIN="hadolint-linux-${HADOLINT_ARCH}"
+    HADOLINT_URL="https://github.com/hadolint/hadolint/releases/latest/download"
+    HADOLINT_TMP=$(mktemp -d) || exit 1
+    trap 'rm -rf "${HADOLINT_TMP}"' EXIT
+    curl -sSfLo "${HADOLINT_TMP}/${HADOLINT_BIN}" "${HADOLINT_URL}/${HADOLINT_BIN}" &&
+    curl -sSfLo "${HADOLINT_TMP}/checksums.sha256" "${HADOLINT_URL}/checksums.sha256" &&
+    # Exact-match lookup: fails on a missing entry, not only a wrong hash
+    awk -v f="${HADOLINT_BIN}" -v d="${HADOLINT_TMP}" \
+        '{ sub(/^\*/, "", $2) } $2 == f { print $1 "  " d "/" f; found = 1 } END { exit !found }' \
+        "${HADOLINT_TMP}/checksums.sha256" | sha256sum -c - &&
+    install -m 0755 "${HADOLINT_TMP}/${HADOLINT_BIN}" /usr/local/bin/hadolint
 ) || log "warning: hadolint install failed, continuing" &
 HADOLINT_PID=$!
 
