@@ -12,8 +12,7 @@
 # PyPI publishing were deliberately left out of cloud sessions, since cloud
 # environments have no secrets store.
 #
-# Requires "Custom" network access with the Trusted defaults included, plus
-# *.cloudsmith.io added (for lefthook's package repo).
+# Requires "Custom" network access with the Trusted defaults included.
 
 set -uo pipefail
 
@@ -27,15 +26,28 @@ set -uo pipefail
 
 log() { echo "[setup] $*"; }
 
+# Prints a GitHub repo's latest release tag, or nothing. Release assets whose
+# names carry the version need the tag first, and pinning one tag also stops a
+# release landing between two downloads, so prefer it for any new release
+# binary. GitHub redirects any name under releases/latest/download to the
+# tagged release, and this platform's session proxy can deny the
+# releases/latest page itself. Callers check for empty output: sed exits 0 on
+# no match. If every install using this starts failing at once, suspect the
+# redirect: GitHub may have stopped redirecting names it doesn't host.
+latest_release_tag() {
+    curl -sS -o /dev/null -w '%{redirect_url}' "https://github.com/$1/releases/latest/download/tag-probe" \
+        | sed -n 's|.*/releases/download/\([^/]*\)/.*|\1|p'
+}
+
 REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud/main/cloud"
 
 ## --- Stage 1: independent installs, run in parallel ---
 
-# apt-based tools: GitHub CLI (gh) + lefthook.
-# Neither is pre-installed on the cloud image (unlike jq/make/unzip/gnupg,
-# which already are). Steps are chained with && (see the top of the file);
-# apt's cleanup runs on exit, whatever the outcome. Any other apt package goes
-# in this stage too: a parallel apt-get would race it for the dpkg lock, and
+# apt-based tools: GitHub CLI (gh).
+# Not pre-installed on the cloud image (unlike jq/make/unzip/gnupg, which
+# already are). Steps are chained with && (see the top of the file); apt's
+# cleanup runs on exit, whatever the outcome. Any other apt package goes in
+# this stage too: a parallel apt-get would race it for the dpkg lock, and
 # this trap's cleanup.
 (
     set -uo pipefail
@@ -46,11 +58,30 @@ REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud
         | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
         | tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
-    curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | bash &&
     apt-get update -y &&
-    apt-get install -y --no-install-recommends gh lefthook
-) || log "warning: gh/lefthook install failed, continuing" &
+    apt-get install -y --no-install-recommends gh
+) || log "warning: gh install failed, continuing" &
 APT_PID=$!
+
+# lefthook: git hooks manager, single binary from the latest release, verified
+# against that release's checksum file. Steps are chained with && (see the top
+# of the file).
+(
+    LEFTHOOK_TMP=$(mktemp -d) || exit 1
+    trap 'rm -rf "${LEFTHOOK_TMP}"' EXIT
+    LEFTHOOK_TAG=$(latest_release_tag evilmartians/lefthook) &&
+    [ -n "${LEFTHOOK_TAG}" ] &&
+    LEFTHOOK_BIN="lefthook_${LEFTHOOK_TAG#v}_Linux_$(uname -m)" &&
+    LEFTHOOK_URL="https://github.com/evilmartians/lefthook/releases/download/${LEFTHOOK_TAG}" &&
+    curl -sSfLo "${LEFTHOOK_TMP}/${LEFTHOOK_BIN}" "${LEFTHOOK_URL}/${LEFTHOOK_BIN}" &&
+    curl -sSfLo "${LEFTHOOK_TMP}/checksums.txt" "${LEFTHOOK_URL}/lefthook_checksums.txt" &&
+    # Exact-match lookup: fails on a missing entry, not only a wrong hash
+    awk -v f="${LEFTHOOK_BIN}" -v d="${LEFTHOOK_TMP}" \
+        '{ sub(/^\*/, "", $2) } $2 == f { print $1 "  " d "/" f; found = 1 } END { exit !found }' \
+        "${LEFTHOOK_TMP}/checksums.txt" | sha256sum -c - &&
+    install -m 0755 "${LEFTHOOK_TMP}/${LEFTHOOK_BIN}" /usr/local/bin/lefthook
+) || log "warning: lefthook install failed, continuing" &
+LEFTHOOK_PID=$!
 
 # hadolint: Dockerfile linter, single binary from GitHub releases, verified
 # against the release's checksum file. A release landing between the two
@@ -74,18 +105,13 @@ HADOLINT_PID=$!
 
 # trufflehog: secret scanner, from the latest release's tarball, verified
 # against that release's checksum file (its install script is served from
-# the repo's main branch, unpinned). Asset names carry the version, so read
-# the latest tag from a latest/download redirect: GitHub redirects any name
-# there to the tagged release, and this platform's session proxy can deny the
-# releases/latest page itself. Steps are chained with && (see the top of the
-# file).
+# the repo's main branch, unpinned). Steps are chained with && (see the top
+# of the file).
 (
     TRUFFLEHOG_ARCH=$(dpkg --print-architecture)
     TRUFFLEHOG_TMP=$(mktemp -d) || exit 1
     trap 'rm -rf "${TRUFFLEHOG_TMP}"' EXIT
-    TRUFFLEHOG_REDIRECT=$(curl -sS -o /dev/null -w '%{redirect_url}' \
-        https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog) &&
-    TRUFFLEHOG_TAG=$(echo "${TRUFFLEHOG_REDIRECT}" | sed -n 's|.*/releases/download/\(v[0-9][^/]*\)/.*|\1|p') &&
+    TRUFFLEHOG_TAG=$(latest_release_tag trufflesecurity/trufflehog) &&
     [ -n "${TRUFFLEHOG_TAG}" ] &&
     TRUFFLEHOG_VERSION="${TRUFFLEHOG_TAG#v}" &&
     TRUFFLEHOG_TARBALL="trufflehog_${TRUFFLEHOG_VERSION}_linux_${TRUFFLEHOG_ARCH}.tar.gz" &&
@@ -129,7 +155,7 @@ TRUFFLEHOG_PID=$!
 ) &
 UV_PID=$!
 
-wait "$APT_PID" "$HADOLINT_PID" "$TRUFFLEHOG_PID" "$UV_PID"
+wait "$APT_PID" "$LEFTHOOK_PID" "$HADOLINT_PID" "$TRUFFLEHOG_PID" "$UV_PID"
 log "stage 1 complete"
 
 ## --- Stage 2: config files, fetched from this repo so edits stay diffable

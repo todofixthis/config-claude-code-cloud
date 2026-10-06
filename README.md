@@ -16,7 +16,7 @@ Bootstrap config for Phoenix's Claude Code on the web (cloud) environments — t
 ## One-time environment setup
 
 1. At [claude.ai/code](https://claude.ai/code), open the environment dialog (the cloud icon above the message box → settings gear on the environment you're configuring).
-2. Set **Network access** to **Custom**, keep "also include default list of common package managers" checked, and add `*.cloudsmith.io` (needed for lefthook's package repo — everything else installs from domains already on the Trusted default list).
+2. Set **Network access** to **Custom**, and keep "also include default list of common package managers" checked: everything installs from domains already on the Trusted default list.
 3. Paste `cloud/pointer.sh`'s content into **Setup script**.
 4. Paste `cloud/environment.env`'s content into **Environment variables**.
 5. Save. The setup script runs once, on the first session in this environment, and is cached (~7 days, or until the setup script text or allowed domains change) for every session after that.
