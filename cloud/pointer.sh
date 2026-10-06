@@ -2,7 +2,10 @@
 # Paste this file's content, verbatim, into the cloud environment's
 # "Setup script" field at claude.ai/code.
 #
-# Bootstrap version: 2026-10-06-c0313f3
+# Bootstrap version: 2026-10-06-3c575d0
+#
+# The hash is main's HEAD when the version was bumped, so it trails the
+# commit that carries it by one.
 #
 # The environment only re-runs its Setup script (and rebuilds its cached
 # snapshot) when THIS text changes — not when the remote setup.sh below
@@ -12,8 +15,10 @@
 
 # Download to a file before running it: piped straight into bash, the fetch
 # would stay open while setup.sh runs, and the time limit could cut the
-# script off part-way once it outgrows the pipe buffer.
+# script off part-way once it outgrows the pipe buffer. The trap keeps the
+# download out of the cached snapshot.
 SETUP_SH=$(mktemp) &&
+trap 'rm -f "${SETUP_SH}"' EXIT &&
 curl -fsSL --connect-timeout 20 --max-time 120 -o "${SETUP_SH}" \
     https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud/main/cloud/setup.sh &&
 bash "${SETUP_SH}" \
