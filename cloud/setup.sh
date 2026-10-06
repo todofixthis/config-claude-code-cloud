@@ -12,7 +12,9 @@
 # PyPI publishing were deliberately left out of cloud sessions, since cloud
 # environments have no secrets store.
 #
-# Requires "Custom" network access with the Trusted defaults included.
+# Requires "Custom" network access with the Trusted defaults included, plus
+# rekor.sigstore.dev and tuf-repo-cdn.sigstore.dev (for verifying
+# trufflehog's signature).
 
 set -uo pipefail
 
@@ -25,6 +27,17 @@ set -uo pipefail
 # subshell's last command.
 
 log() { echo "[setup] $*"; }
+
+# A stalled download would hold up stage 1's wait, and with it the session's
+# start, so curl gets a connect timeout and an overall limit. The limit leaves
+# room for the largest download here, cosign at about 130 MB, on a slow link;
+# to give one call longer, pass --max-time on that call, since curl takes the
+# last one given. As a shell function, this covers curl called by name here
+# and in the stage subshells, but not curl run via xargs, env, timeout or
+# bash -c, nor inside a vendor script piped to a shell: give those their own
+# limits. Other network steps carry their own limit (git clone, cosign) or
+# rely on their tool's timeouts (apt, uv, pip).
+curl() { command curl --connect-timeout 20 --max-time 600 "$@"; }
 
 # Prints a GitHub repo's latest release tag, or nothing. Release assets whose
 # names carry the version need the tag first, and pinning one tag also stops a
@@ -105,19 +118,51 @@ HADOLINT_PID=$!
 
 # trufflehog: secret scanner, from the latest release's tarball, verified
 # against that release's checksum file (its install script is served from
-# the repo's main branch, unpinned). Steps are chained with && (see the top
-# of the file).
+# the repo's main branch, unpinned), and that checksum file against
+# trufflehog's keyless cosign signature, requiring the certificate identity
+# the user confirmed (as in config-paddock's baseline image). cosign itself
+# is checked only against its own release's checksums: an accepted bootstrap
+# exception, since verifying cosign needs a cosign already trusted. cosign
+# and its Sigstore cache (TUF_ROOT) live in the stage's temp directory, so
+# neither outlives the stage. Verifying needs rekor.sigstore.dev and
+# tuf-repo-cdn.sigstore.dev; without them trufflehog isn't installed and the
+# stage logs its warning. cosign warns that --certificate and --signature
+# are deprecated, which is expected while trufflehog publishes no
+# .sigstore.json bundle. Steps are chained with && (see the top of the file).
+#
+# cosign is pinned, unlike this file's other tools, so a release dropping
+# those flags can't arrive unannounced and silently stop trufflehog
+# installing. Keep COSIGN_TAG at todofixthis/config-paddock's COSIGN_VERSION
+# (here with a v prefix: v3.1.3 for 3.1.3), which Renovate bumps and that
+# repo's CI tests; bump it here only after that has merged.
 (
-    TRUFFLEHOG_ARCH=$(dpkg --print-architecture)
+    ARCH=$(dpkg --print-architecture)
     TRUFFLEHOG_TMP=$(mktemp -d) || exit 1
     trap 'rm -rf "${TRUFFLEHOG_TMP}"' EXIT
+    COSIGN_TAG=v3.1.3
+    COSIGN_BIN="cosign-linux-${ARCH}" &&
+    COSIGN_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_TAG}" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/${COSIGN_BIN}" "${COSIGN_URL}/${COSIGN_BIN}" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/cosign_checksums.txt" "${COSIGN_URL}/cosign_checksums.txt" &&
+    awk -v f="${COSIGN_BIN}" -v d="${TRUFFLEHOG_TMP}" \
+        '{ sub(/^\*/, "", $2) } $2 == f { print $1 "  " d "/" f; found = 1 } END { exit !found }' \
+        "${TRUFFLEHOG_TMP}/cosign_checksums.txt" | sha256sum -c - &&
+    chmod +x "${TRUFFLEHOG_TMP}/${COSIGN_BIN}" &&
     TRUFFLEHOG_TAG=$(latest_release_tag trufflesecurity/trufflehog) &&
     [ -n "${TRUFFLEHOG_TAG}" ] &&
     TRUFFLEHOG_VERSION="${TRUFFLEHOG_TAG#v}" &&
-    TRUFFLEHOG_TARBALL="trufflehog_${TRUFFLEHOG_VERSION}_linux_${TRUFFLEHOG_ARCH}.tar.gz" &&
+    TRUFFLEHOG_TARBALL="trufflehog_${TRUFFLEHOG_VERSION}_linux_${ARCH}.tar.gz" &&
     TRUFFLEHOG_URL="https://github.com/trufflesecurity/trufflehog/releases/download/${TRUFFLEHOG_TAG}" &&
     curl -sSfLo "${TRUFFLEHOG_TMP}/${TRUFFLEHOG_TARBALL}" "${TRUFFLEHOG_URL}/${TRUFFLEHOG_TARBALL}" &&
     curl -sSfLo "${TRUFFLEHOG_TMP}/checksums.txt" "${TRUFFLEHOG_URL}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/checksums.txt.sig" "${TRUFFLEHOG_URL}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt.sig" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/checksums.txt.pem" "${TRUFFLEHOG_URL}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt.pem" &&
+    TUF_ROOT="${TRUFFLEHOG_TMP}/sigstore" timeout 120 "${TRUFFLEHOG_TMP}/${COSIGN_BIN}" verify-blob \
+        --certificate "${TRUFFLEHOG_TMP}/checksums.txt.pem" \
+        --signature "${TRUFFLEHOG_TMP}/checksums.txt.sig" \
+        --certificate-identity "https://github.com/trufflesecurity/trufflehog/.github/workflows/release.yml@refs/tags/${TRUFFLEHOG_TAG}" \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+        "${TRUFFLEHOG_TMP}/checksums.txt" &&
     # Exact-match lookup: fails on a missing entry, not only a wrong hash
     awk -v f="${TRUFFLEHOG_TARBALL}" -v d="${TRUFFLEHOG_TMP}" \
         '{ sub(/^\*/, "", $2) } $2 == f { print $1 "  " d "/" f; found = 1 } END { exit !found }' \
@@ -202,7 +247,7 @@ sync_skills_dir_plugin() {
     local name="$1" repo_url="$2" tmp
     tmp="$(mktemp -d)"
 
-    if ! git clone --depth 1 --quiet "$repo_url" "$tmp"; then
+    if ! timeout 300 git clone --depth 1 --quiet "$repo_url" "$tmp"; then
         log "warning: failed to clone $repo_url for $name, leaving skills/$name untouched"
         rm -rf "$tmp"
         return
