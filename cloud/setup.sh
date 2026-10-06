@@ -17,6 +17,14 @@
 
 set -uo pipefail
 
+# Stage 1's installs each run in a background subshell, whose PID the wait
+# after them must list. Most are guarded by `|| log` (uv's logs per step), and
+# bash ignores set -e in a subshell on the left of ||, so adding it there
+# silently changes nothing. An install that must stop at its first failure
+# instead ends every step but the last with &&, so a failure skips the rest
+# and logs the warning; cleanup goes in an EXIT trap, so the chain stays the
+# subshell's last command.
+
 log() { echo "[setup] $*"; }
 
 REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud/main/cloud"
@@ -25,31 +33,29 @@ REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud
 
 # apt-based tools: GitHub CLI (gh) + lefthook.
 # Neither is pre-installed on the cloud image (unlike jq/make/unzip/gnupg,
-# which already are).
+# which already are). Steps are chained with && (see the top of the file);
+# apt's cleanup runs on exit, whatever the outcome. Any other apt package goes
+# in this stage too: a parallel apt-get would race it for the dpkg lock, and
+# this trap's cleanup.
 (
     set -uo pipefail
-    apt-get update -y
-    apt-get install -y --no-install-recommends apt-transport-https ca-certificates gnupg
-
+    trap 'apt-get clean; rm -rf /var/lib/apt/lists/*' EXIT
+    apt-get update -y &&
+    apt-get install -y --no-install-recommends apt-transport-https ca-certificates gnupg &&
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-
-    curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | bash
-
-    apt-get update -y
+        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
+    curl -1sLf 'https://dl.cloudsmith.io/public/evilmartians/lefthook/setup.deb.sh' | bash &&
+    apt-get update -y &&
     apt-get install -y --no-install-recommends gh lefthook
-    apt-get clean
-    rm -rf /var/lib/apt/lists/*
 ) || log "warning: gh/lefthook install failed, continuing" &
 APT_PID=$!
 
 # hadolint: Dockerfile linter, single binary from GitHub releases, verified
 # against the release's checksum file. A release landing between the two
 # downloads fails the check and is logged, never installed. Steps are chained
-# with && because bash ignores set -e in a subshell on the left of ||, so
-# adding it here would silently change nothing.
+# with && (see the top of the file).
 (
     HADOLINT_ARCH=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "x86_64")
     HADOLINT_BIN="hadolint-linux-${HADOLINT_ARCH}"
@@ -66,9 +72,32 @@ APT_PID=$!
 ) || log "warning: hadolint install failed, continuing" &
 HADOLINT_PID=$!
 
-# trufflehog: secret scanner, installed via upstream script.
+# trufflehog: secret scanner, from the latest release's tarball, verified
+# against that release's checksum file (its install script is served from
+# the repo's main branch, unpinned). Asset names carry the version, so read
+# the latest tag from a latest/download redirect: GitHub redirects any name
+# there to the tagged release, and this platform's session proxy can deny the
+# releases/latest page itself. Steps are chained with && (see the top of the
+# file).
 (
-    curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+    TRUFFLEHOG_ARCH=$(dpkg --print-architecture)
+    TRUFFLEHOG_TMP=$(mktemp -d) || exit 1
+    trap 'rm -rf "${TRUFFLEHOG_TMP}"' EXIT
+    TRUFFLEHOG_REDIRECT=$(curl -sS -o /dev/null -w '%{redirect_url}' \
+        https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog) &&
+    TRUFFLEHOG_TAG=$(echo "${TRUFFLEHOG_REDIRECT}" | sed -n 's|.*/releases/download/\(v[0-9][^/]*\)/.*|\1|p') &&
+    [ -n "${TRUFFLEHOG_TAG}" ] &&
+    TRUFFLEHOG_VERSION="${TRUFFLEHOG_TAG#v}" &&
+    TRUFFLEHOG_TARBALL="trufflehog_${TRUFFLEHOG_VERSION}_linux_${TRUFFLEHOG_ARCH}.tar.gz" &&
+    TRUFFLEHOG_URL="https://github.com/trufflesecurity/trufflehog/releases/download/${TRUFFLEHOG_TAG}" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/${TRUFFLEHOG_TARBALL}" "${TRUFFLEHOG_URL}/${TRUFFLEHOG_TARBALL}" &&
+    curl -sSfLo "${TRUFFLEHOG_TMP}/checksums.txt" "${TRUFFLEHOG_URL}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt" &&
+    # Exact-match lookup: fails on a missing entry, not only a wrong hash
+    awk -v f="${TRUFFLEHOG_TARBALL}" -v d="${TRUFFLEHOG_TMP}" \
+        '{ sub(/^\*/, "", $2) } $2 == f { print $1 "  " d "/" f; found = 1 } END { exit !found }' \
+        "${TRUFFLEHOG_TMP}/checksums.txt" | sha256sum -c - &&
+    tar -xzf "${TRUFFLEHOG_TMP}/${TRUFFLEHOG_TARBALL}" -C "${TRUFFLEHOG_TMP}" trufflehog &&
+    install -m 0755 "${TRUFFLEHOG_TMP}/trufflehog" /usr/local/bin/trufflehog
 ) || log "warning: trufflehog install failed, continuing" &
 TRUFFLEHOG_PID=$!
 
