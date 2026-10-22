@@ -1,17 +1,18 @@
+version: 1
+accessible_colors: disabled
+accessible_prompter: disabled
+aliases:
+    co: pr checkout
+browser:
+color_labels: enabled
+editor:
 # expiring_credentials is deliberately unset: it only affects tokens stored
 # by `gh auth login`, and gh prefers GH_TOKEN over those — proxy-injected in
 # cloud sessions (see the GH_TOKEN note in environment.env).
-version: 1
+# expiring_credentials: enabled
 git_protocol: https
-editor:
-prompt: enabled
-prefer_editor_prompt: disabled
-pager:
-aliases:
-    co: pr checkout
 http_unix_socket:
-browser:
-color_labels: enabled
-accessible_colors: disabled
-accessible_prompter: disabled
+pager:
+prefer_editor_prompt: disabled
+prompt: enabled
 spinner: enabled
