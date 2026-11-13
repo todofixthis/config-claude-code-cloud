@@ -201,6 +201,30 @@ TRUFFLEHOG_PID=$!
 UV_PID=$!
 
 wait "$APT_PID" "$LEFTHOOK_PID" "$HADOLINT_PID" "$TRUFFLEHOG_PID" "$UV_PID"
+
+# The image ships Node 24 in /opt/node24 beside its default Node 22, which
+# current Renovate can't run on. The session's PATH is baked into
+# environment-manager with /opt/node22/bin on it and /opt/node24/bin absent,
+# but /root/.local/bin comes first, so linking Node 24 there makes it the
+# default without touching PATH. Node 24's npm would derive its global prefix
+# from its own node, putting `npm install -g` in /opt/node24/bin, off PATH;
+# its global npmrc pins the prefix to /opt/node22 instead, whose bin holds the
+# entries for the image's global CLIs (eslint, tsc, prettier, ...), which now
+# run under Node 24. One trap: `npm install -g npm` then upgrades Node 22's
+# npm, not the Node 24 npm that runs. The image marks its own default with
+# /usr/local/bin/node, which this block doesn't shadow for anything reading
+# it directly, so the block skips itself once that stops pointing at Node 22;
+# delete it when the setup log shows it skipping.
+if [ -x /opt/node24/bin/node ] && [ "$(readlink -f /usr/local/bin/node)" = /opt/node22/bin/node ]; then
+    mkdir -p /opt/node24/etc /root/.local/bin &&
+    printf 'prefix=/opt/node22\n' > /opt/node24/etc/npmrc &&
+    ln -sf /opt/node24/bin/corepack /opt/node24/bin/node /opt/node24/bin/npm /opt/node24/bin/npx /root/.local/bin/ &&
+    log "node 24 linked ahead of node 22" ||
+    log "warning: linking node 24 failed, leaving node 22 as the default"
+else
+    log "warning: no /opt/node24, or the image's default node is no longer 22; leaving it alone"
+fi
+
 log "stage 1 complete"
 
 ## --- Stage 2: config files, fetched from this repo so edits stay diffable
