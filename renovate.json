@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "sigstore/cosign",
+      "description": "Track cloud/setup.sh's cosign pin, which follows todofixthis/config-paddock's COSIGN_VERSION.",
+      "managerFilePatterns": [
+        "/^cloud/setup\\.sh$/"
+      ],
+      "matchStrings": [
+        "COSIGN_TAG=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ]
+    }
+  ],
+  "dependencyDashboardFooter": "Approve a sigstore/cosign bump only after todofixthis/config-paddock's has merged, and merge its PR only at config-paddock's COSIGN_VERSION (see cloud/setup.sh).",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "packageRules": [
+    {
+      "dependencyDashboardApproval": true,
+      "description": "Hold cosign bumps for approval on the Dependency Dashboard: approve only once todofixthis/config-paddock's bump has merged, as cloud/setup.sh's comment requires.",
+      "matchDepNames": [
+        "sigstore/cosign"
+      ],
+      "prBodyNotes": [
+        "⚠️ Merge only if this version equals `todofixthis/config-paddock`'s `COSIGN_VERSION`; Renovate offers the newest release, which config-paddock may not have tested yet.",
+        "⚠️ Sessions keep the old cosign until the ~7-day setup cache rebuild. To apply it sooner, bump `cloud/pointer.sh`'s version comment in a follow-up PR after merging, then re-paste it into the environment's Setup script field (README.md, \"Making changes\")."
+      ]
+    }
+  ]
+}

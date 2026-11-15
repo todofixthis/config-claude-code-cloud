@@ -12,6 +12,7 @@ Bootstrap config for Phoenix's Claude Code on the web (cloud) environments — t
 - `.github/workflows/generate-claude-md.yml` — runs the above automatically on a push to `main` that touches `cloud/CLAUDE.cloud-only.md`, using the `CONFIG_CLAUDE_READ_TOKEN` secret below to authenticate the fetch, and pushes the regenerated `cloud/CLAUDE.md` as the `CLAUDE_MD_BOT_APP_ID` app (also below) — a bypass actor on this repo's own branch-protection ruleset, since neither the default `GITHUB_TOKEN` nor a plain PAT can push straight to `main` here.
 - `cloud/gh-config.yml` — `gh` CLI preferences. Note `git_protocol: https`, not `ssh` — cloud sessions have no SSH client, so `gh` needs HTTPS to have any credential to use.
 - `cloud/environment.env` — paste verbatim into the environment's **Environment variables** field.
+- `renovate.json` — Renovate config: pins GitHub Actions to commit digests and keeps them current, and tracks `cloud/setup.sh`'s cosign pin. Each cosign bump waits on the Dependency Dashboard: approve it only after `todofixthis/config-paddock`'s bump has merged, and merge its PR only at config-paddock's `COSIGN_VERSION`.
 
 ## One-time environment setup
 
@@ -62,6 +63,8 @@ One consequence: don't also enable these three via the marketplace path (`extraK
 ## Making changes
 
 - **Editing `setup.sh` or `gh-config.yml`**: commit the change here, then bump the version comment at the top of `cloud/pointer.sh` and re-paste `pointer.sh`'s content into the environment's Setup script field. This step is the whole reason `pointer.sh` exists: the environment only re-runs its setup script (and rebuilds the cached snapshot) when *that field's own text* changes — never when the file it fetches does. Skipping the re-paste means the change sits in this repo but never reaches a session.
+- **Merging a Renovate PR that touches `cloud/setup.sh`**: same bump-and-re-paste step as above, in a follow-up PR (`main` takes no direct pushes, and `pointer.sh`'s hash names `main`'s HEAD after the merge). Renovate can't bump `pointer.sh` itself, so the PR body reminds you.
+- **Merging a Renovate PR that touches `.github/workflows/`**: those PRs get no CI, but the merge itself runs the workflow (its `paths:` filter includes its own file). Check that run goes green.
 - **Editing `CLAUDE.cloud-only.md`**: commit and push to `main` — `.github/workflows/generate-claude-md.yml` regenerates `cloud/CLAUDE.md` and pushes automatically; then follow the bump-and-re-paste step above (see `cloud/CLAUDE.cloud-only.md` for the full procedure).
 - **Editing shared content**: not here — there's no `CLAUDE.shared.md` file in this repo to edit. Edit it in `todofixthis/config-claude`'s `CLAUDE.shared.md` instead; that repo's own workflow pushes the regenerated `cloud/CLAUDE.md` into this repo automatically (see `cloud/CLAUDE.cloud-only.md` for the full procedure).
 - **Editing `pointer.sh` or `environment.env` itself**: re-paste directly, no version bump needed (the text already changed).

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/workflows/generate-claude-md.yml
       - cloud/CLAUDE.cloud-only.md
   workflow_dispatch: {}
 
