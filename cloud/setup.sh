@@ -134,7 +134,10 @@ HADOLINT_PID=$!
 # those flags can't arrive unannounced and silently stop trufflehog
 # installing. Keep COSIGN_TAG at todofixthis/config-paddock's COSIGN_VERSION
 # (here with a v prefix: v3.1.3 for 3.1.3), which Renovate bumps and that
-# repo's CI tests; bump it here only after that has merged.
+# repo's CI tests. Renovate tracks COSIGN_TAG too, holding each bump on its
+# Dependency Dashboard: approve it only after todofixthis/config-paddock's
+# has merged. Keep the line as COSIGN_TAG=vX.Y.Z, unquoted: renovate.json's
+# regex matches it literally, and silently stops tracking cosign otherwise.
 (
     ARCH=$(dpkg --print-architecture)
     TRUFFLEHOG_TMP=$(mktemp -d) || exit 1
