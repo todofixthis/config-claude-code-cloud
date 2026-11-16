@@ -261,11 +261,10 @@ log "stage 2 complete"
 # ~/.claude/skills/<name>/ that carries a .claude-plugin/plugin.json, as
 # "<name>@skills-dir" — no marketplace, no `claude plugin install`, no
 # settings.json entry, and (confirmed live) it shows up in the skill
-# listing immediately, without a restart. phx, superpowers, and
-# elements-of-style already ship exactly the directory shape this
-# mechanism expects, so mirror each straight from its own repo — not the
-# superpowers-marketplace repo, which is just a pointer catalogue with no
-# skill content of its own.
+# listing immediately, without a restart. phx and superpowers already
+# ship exactly the directory shape this mechanism expects, so mirror each
+# straight from its own repo — not the superpowers-marketplace repo, which
+# is just a pointer catalogue with no skill content of its own.
 #
 # Mirror the whole tree bar .git, as a marketplace install does. A plugin's
 # tools can depend on files at its root: phx:writing-adrs builds its venv
@@ -273,7 +272,7 @@ log "stage 2 complete"
 # directories left those behind, so the tool and its hooks were off in
 # every session.
 #
-# Don't also register these three via extraKnownMarketplaces/enabledPlugins:
+# Don't also register these two via extraKnownMarketplaces/enabledPlugins:
 # an installed marketplace plugin takes precedence over a skills-dir plugin
 # of the same name, so the copy synced below would silently stop loading.
 sync_skills_dir_plugin() {
@@ -300,7 +299,6 @@ sync_skills_dir_plugin() {
 
 sync_skills_dir_plugin phx "https://github.com/todofixthis/phx-claude-siat.git"
 sync_skills_dir_plugin superpowers "https://github.com/obra/superpowers.git"
-sync_skills_dir_plugin elements-of-style "https://github.com/obra/the-elements-of-style.git"
 
 # Build phx:writing-adrs's venv into the snapshot with the plugin's own
 # launcher, so a session's first ADR command needs no network. It doubles as
