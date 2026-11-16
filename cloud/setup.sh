@@ -264,6 +264,12 @@ log "stage 2 complete"
 # superpowers-marketplace repo, which is just a pointer catalogue with no
 # skill content of its own.
 #
+# Mirror the whole tree bar .git, as a marketplace install does. A plugin's
+# tools can depend on files at its root: phx:writing-adrs builds its venv
+# from the root pyproject.toml and uv.lock, and an allowlist of component
+# directories left those behind, so the tool and its hooks were off in
+# every session.
+#
 # Don't also register these three via extraKnownMarketplaces/enabledPlugins:
 # an installed marketplace plugin takes precedence over a skills-dir plugin
 # of the same name, so the copy synced below would silently stop loading.
@@ -278,19 +284,36 @@ sync_skills_dir_plugin() {
     fi
 
     local dest=~/.claude/skills/"$name"
-    rm -rf "$dest"
+    rm -rf "$tmp/.git" "$dest"
     mkdir -p "$dest"
-    for part in .claude-plugin skills agents commands hooks .mcp.json; do
-        [ -e "$tmp/$part" ] || continue
-        cp -r "$tmp/$part" "$dest/$part" || log "warning: failed to copy $part for $name, plugin may be incomplete"
-    done
+    # -a keeps symlinks as symlinks; "/." takes dotfiles such as .claude-plugin.
+    if cp -a "$tmp/." "$dest/"; then
+        log "$name synced to skills-dir"
+    else
+        log "warning: failed to copy $name, plugin may be incomplete"
+    fi
     rm -rf "$tmp"
-    log "$name synced to skills-dir"
 }
 
 sync_skills_dir_plugin phx "https://github.com/todofixthis/phx-claude-siat.git"
 sync_skills_dir_plugin superpowers "https://github.com/obra/superpowers.git"
 sync_skills_dir_plugin elements-of-style "https://github.com/obra/the-elements-of-style.git"
+
+# Build phx:writing-adrs's venv into the snapshot with the plugin's own
+# launcher, so a session's first ADR command needs no network. It doubles as
+# the check that the synced tree is one the launcher can build from. The
+# data-directory argument is empty because only a plugins/cache install
+# reads it.
+PHX_ADR_SYNC_SH=~/.claude/skills/phx/skills/writing-adrs/sync.sh
+if [ -f "$PHX_ADR_SYNC_SH" ]; then
+    if timeout 300 sh "$PHX_ADR_SYNC_SH" "" >/dev/null; then
+        log "phx:writing-adrs environment built"
+    else
+        log "warning: phx:writing-adrs could not build its environment, its ADR tool and hooks will be off"
+    fi
+else
+    log "warning: phx:writing-adrs has no sync.sh at $PHX_ADR_SYNC_SH, its environment was not built"
+fi
 
 log "stage 3 complete: plugins synced to skills-dir"
 log "setup script finished"
