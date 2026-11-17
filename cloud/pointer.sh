@@ -2,7 +2,7 @@
 # Paste this file's content, verbatim, into the cloud environment's
 # "Setup script" field at claude.ai/code.
 #
-# Bootstrap version: 2026-11-15-3bfe9f1
+# Bootstrap version: 2026-11-17-d190071
 #
 # The hash is main's HEAD when the version was bumped, so it trails the
 # commit that carries it by one.

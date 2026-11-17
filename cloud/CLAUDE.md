@@ -62,7 +62,7 @@ The MCP tools don't cover everything `gh` does — reading check-run annotations
 - If a tool the session runs on — a system binary, the container's toolchain, `uv` itself — is missing (`command not found`) or too old for what the work needs, stop and escalate: don't install, upgrade or substitute it, pin around it or otherwise work around it — the user needs to know the environment is missing a tool or holds an outdated one. Too old includes a command that exits 0 with an answer you trace to its age. Changing a dependency the repo declares to fit an outdated environment tool — downgrading copier in a lockfile to suit an old git, say — is the same workaround and equally banned. A dependency change made for its own reasons is ordinary work, and where the task is itself upgrading the environment (a Dockerfile, a setup script), that is the fix, not a workaround
 - Check a claim about what a tool or platform does against the thing itself before asserting it: the tool's config in the repo, the workflow file, the live setting via its API. Documentation is not a source, including the repo's own — a doc saying the same thing is as likely to be where the error came from as it is to confirm it, and settings that live only in a platform (branch protections, default branches, secrets) have no file to contradict them
 - A warning that repeats across tool invocations is signal, not noise, even where the command still exits 0 — investigate and fix the root cause (or ask), unless the repo documents why it's expected (a suppression comment, a linked issue). Where the cause is an outdated environment tool, the rule above applies: escalate rather than upgrade it
-- A `phx:`/`superpowers:`/`elements-of-style:` skill can be installed and still miss a session's first-turn skill listing — the plugin lands on disk before the session starts, so this is a same-session indexing lag, not a slow install. To use one from turn one, name it explicitly in the first message: an explicitly-typed name works even before that turn's listing catches up
+- A `phx:`/`superpowers:` skill can be installed and still miss a session's first-turn skill listing — the plugin lands on disk before the session starts, so this is a same-session indexing lag, not a slow install. To use one from turn one, name it explicitly in the first message: an explicitly-typed name works even before that turn's listing catches up
 
 ## Git commits
 
@@ -102,15 +102,27 @@ one is the only one that needs a gate:
 
 - **Audience-surrogate review** — only where the rule below says, and first, since it
   changes content.
-- **`phx:nz-english`** — every file and every posted artefact. Mechanical and cheap, so it
-  stays broad. Report what it found, so the pass leaves evidence rather than an assertion.
-  Exception for an external symbol (the CSS `color` property, a library's API) or where
-  directed otherwise. In a conversational reply, just spell it correctly and run nothing.
-- **Conciseness** — where the prose changed since the last handoff runs beyond a few
-  sentences; below that there is nothing worth cutting. A separate, final re-read through
-  `elements-of-style:writing-clearly-and-concisely` whose sole goal is cutting words — never
-  skipped because the draft already reads tightly, writing and compressing being different
-  jobs. Ask of each sentence whether cutting it loses something the reader needs.
+- **Clarity** — where the prose changed since the last handoff runs beyond a few
+  sentences; below that there is nothing worth revising. A separate re-read whose sole
+  goal is the reader — easier reading for a person, fewer tokens for a model — never
+  skipped because the draft already reads well, writing and revising being different jobs.
+  Outside a conversational reply, write prose a person reads, a plan submitted for
+  approval included, to `phx:technical-writing` from the first draft, whatever its length:
+  it sets structure and puts readability above word count. This pass re-reads through it;
+  an edit to structure or a claim rather than wording goes back to the surrogate. An
+  artefact only a model consumes — a skill, a prompt, a runbook or brief an agent follows,
+  an AGENTS.md or CLAUDE.md — skips that skill, even where a person maintains it: cut by
+  hand to the fewest tokens that keep the meaning, asking of each sentence whether cutting
+  it loses something the reader needs. A skill governing the artefact's form wins where
+  they disagree — `phx:creative-commits`, whose message takes `phx:technical-writing` only
+  once its body runs past a few sentences — and one with its own cutting pass, as
+  `phx:writing-adrs` has, runs it as well. Text another rule fixes verbatim, such as the
+  GitHub footer, stays as given.
+- **`phx:nz-english`** — every file and every posted artefact, and last, since the
+  clarity pass rewrites sentences. Mechanical and cheap, so it stays broad. Report what
+  it found, so the pass leaves evidence rather than an assertion. Exception for an external
+  symbol (the CSS `color` property, a library's API) or where directed otherwise. In a
+  conversational reply, just spell it correctly and run nothing.
 
 ## When the passes run
 
@@ -120,7 +132,7 @@ back unchanged. Run each owed pass once per handoff, over everything changed sin
 one — never once per edit within it. Twelve edits to a skill owe one review at the commit,
 and a reviewer reading the whole change is what catches the fault no single edit shows.
 
-That delta scoping is for spelling and conciseness. **The surrogate always reads the whole
+That delta scoping is for spelling and clarity. **The surrogate always reads the whole
 artefact**, however little changed, because the reader it stands in for meets the whole
 thing and never sees the diff.
 
@@ -144,7 +156,7 @@ lines, they have not.
    act. One carrying context the code cannot state — an invariant, why the obvious approach
    was rejected — is rule 4.
 3. **A commit message owes none.** `phx:creative-commits` already imposes a reader's test on
-   it, and the diff travels with it. It still owes spelling, and conciseness once it runs
+   it, and the diff travels with it. It still owes spelling, and clarity once it runs
    past a few sentences.
 4. **A durable, actionable artefact owes one wherever the edit changes what a reader reaches
    or acts on** — a rule, a threshold, a definition, or the order they are met in. A pure
@@ -177,8 +189,8 @@ that makes it final.
 
 **Batch within an audience, never across.** One reviewer takes every agent-facing artefact
 in a handoff, or every human-facing one, reading each from disk; splitting one across both
-breaks the only thing it does. An artefact serving both — a skill, usually — gets one
-reviewer briefed as the agent audience, as the agent rule wins below.
+breaks the only thing it does. An artefact serving both — a README agents also act on,
+say — gets one reviewer briefed as the agent audience, as the agent rule wins below.
 
 **How.** Brief a subagent to read the artefact **from disk** and decide as its audience
 would, walking concrete cases through it rather than judging whether it reads well; ask for
@@ -216,7 +228,7 @@ rules apply, not whether the surrogate runs.
 Applies to any text a model reads and acts on — skills, prompts, runbooks, AGENTS.md:
 
 - Don't document what already sits in the agent's training data or is cheap for this reader to look up. Where it can explore, cut what one `rg` answers; where it can't, that test doesn't apply. Conventions the code cannot state — an invariant, why the obvious approach was rejected — stay either way
-- Use one term per concept; don't vary wording for elegance. Repeat the term even where it reads as slack — the repetition is the signal, and the conciseness pass must not trade it for a synonym
+- Use one term per concept; don't vary wording for elegance. Repeat the term even where it reads as slack — the repetition is the signal, and the clarity pass must not trade it for a synonym
 - Give one default approach with an escape hatch, not a menu: name the option to take, then the condition that overrides it
 - State a rule whose behaviour flips on a condition in prose, not a bullet; in a list the "unless" gets lost
 - Any command you write for an agent to run — plan, skill, or runbook — must assume a non-interactive environment: no stdin, no Ctrl-C, no false-failure exits (e.g. `vitest run` with no test files), nothing unbounded in runtime or output. Use background processes with timeout guards, and check exit codes rather than reading output
@@ -229,6 +241,6 @@ Where the reader can explore for itself — an AGENTS.md in a checked-out repo �
 ## Writing for humans
 
 Applies to documentation files, GitHub PR descriptions, comments, or any other artefact
-where a human developer is the primary audience. It carries no rules of its own: the passes
-and the ladder above are the whole of it, and the agent subsection's rules are what you drop
-when the primary audience is a person.
+where a human developer is the primary audience. Its style rules are `phx:technical-writing`'s,
+binding from the first draft whatever its length, and the agent subsection's rules are what
+you drop when the primary audience is a person.
