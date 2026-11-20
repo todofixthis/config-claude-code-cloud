@@ -232,11 +232,13 @@ wait "$APT_PID" "$LEFTHOOK_PID" "$HADOLINT_PID" "$TRUFFLEHOG_PID" "$UV_PID"
 # it directly, so the block skips itself once that stops pointing at Node 22;
 # delete it when the setup log shows it skipping.
 if [ -x /opt/node24/bin/node ] && [ "$(readlink -f /usr/local/bin/node)" = /opt/node22/bin/node ]; then
-    mkdir -p /opt/node24/etc /root/.local/bin &&
-    printf 'prefix=/opt/node22\n' > /opt/node24/etc/npmrc &&
-    ln -sf /opt/node24/bin/corepack /opt/node24/bin/node /opt/node24/bin/npm /opt/node24/bin/npx /root/.local/bin/ &&
-    log "node 24 linked ahead of node 22" ||
-    log "warning: linking node 24 failed, leaving node 22 as the default"
+    if mkdir -p /opt/node24/etc /root/.local/bin &&
+        printf 'prefix=/opt/node22\n' > /opt/node24/etc/npmrc &&
+        ln -sf /opt/node24/bin/corepack /opt/node24/bin/node /opt/node24/bin/npm /opt/node24/bin/npx /root/.local/bin/; then
+        log "node 24 linked ahead of node 22"
+    else
+        log "warning: linking node 24 failed, leaving node 22 as the default"
+    fi
 else
     log "warning: no /opt/node24, or the image's default node is no longer 22; leaving it alone"
 fi
