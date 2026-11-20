@@ -142,7 +142,9 @@ jobs:
         run: |
           changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" -- cloud/CLAUDE.md)
           if [ -n "$changed" ]; then
-            echo "::error file=cloud/CLAUDE.md::cloud/CLAUDE.md is generated. Revert it (git checkout origin/main -- cloud/CLAUDE.md), and edit cloud/CLAUDE.cloud-only.md, or CLAUDE.shared.md in todofixthis/config-claude for shared content; a workflow regenerates cloud/CLAUDE.md after merge."
+            # Single quotes print the git command for the author to run, unexpanded.
+            # shellcheck disable=SC2016
+            echo '::error file=cloud/CLAUDE.md::cloud/CLAUDE.md is generated. Revert it (git checkout "$(git merge-base origin/main HEAD)" -- cloud/CLAUDE.md), and edit cloud/CLAUDE.cloud-only.md, or CLAUDE.shared.md in todofixthis/config-claude for shared content; a workflow regenerates cloud/CLAUDE.md after merge.'
             echo "❌ this pull request edits cloud/CLAUDE.md"
             exit 1
           fi
