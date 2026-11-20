@@ -1,0 +1,149 @@
+---
+name: CI
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Tool pins. Each `# renovate:` comment feeds renovate.json's regex manager
+# for this file; keep the comment directly above its variable. Node is pinned
+# in the Renovate config job, where Renovate's github-actions manager tracks it.
+env:
+  # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
+  ACTIONLINT_VERSION: 1.7.12
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.257.5
+  # renovate: datasource=docker depName=ghcr.io/trufflesecurity/trufflehog
+  TRUFFLEHOG_VERSION: 3.100.0
+
+# Job names are the required status checks on main's ruleset: renaming one
+# leaves a required check that never reports.
+jobs:
+  shell:
+    name: Shell scripts
+    # ubuntu-24.04, not ubuntu-latest: the preinstalled shellcheck comes from
+    # Ubuntu's own packages, so its version changes only with this label.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run bash -n and shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "❌ git ls-files found no *.sh files to check"
+            exit 1
+          fi
+          echo "▶️ checking ${#scripts[@]} scripts with shellcheck $(shellcheck --version | awk '/^version:/ {print $2}')"
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+          shellcheck "${scripts[@]}"
+          echo "✅ shell scripts pass"
+
+  workflows:
+    name: Workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfL --retry 3 -o "$tarball" "$base/$tarball"
+          curl -sSfL --retry 3 -o checksums.txt "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          # The checksums file comes from the same release: this catches a
+          # corrupt download, not a compromised release.
+          awk -v f="$tarball" '$2 == f' checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" actionlint
+          echo "✅ installed actionlint ${ACTIONLINT_VERSION}"
+
+      - name: Run actionlint
+        run: |
+          "$RUNNER_TEMP/actionlint"
+          echo "✅ workflows pass"
+
+  renovate:
+    name: Renovate config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.3
+
+      # No file argument: given one, the validator checks it as global config
+      # rather than repo config.
+      - name: Run renovate-config-validator
+        run: |
+          npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict
+          echo "✅ renovate.json passes"
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # On pull_request the action scans base.sha to head.sha itself.
+      # --results=verified: unverified results are pattern matches, and
+      # unknown ones come from failed verification calls such as a network
+      # error, so failing on either would fail PRs with nothing wrong in them.
+      - name: Run trufflehog
+        uses: trufflesecurity/trufflehog@d232362a64a09a9e7d58267b8f5acef00ae90e23 # v3.100.0
+        with:
+          extra_args: --results=verified
+          version: ${{ env.TRUFFLEHOG_VERSION }}
+
+  generated:
+    name: Generated files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # base...head diffs from the merge base, so regenerations the bot pushed
+      # to main after this branch was cut don't count against it.
+      - name: Check cloud/CLAUDE.md has no hand edits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" -- cloud/CLAUDE.md)
+          if [ -n "$changed" ]; then
+            echo "::error file=cloud/CLAUDE.md::cloud/CLAUDE.md is generated. Edit cloud/CLAUDE.cloud-only.md, or CLAUDE.shared.md in todofixthis/config-claude for shared content; a workflow regenerates cloud/CLAUDE.md after merge."
+            echo "❌ this pull request edits cloud/CLAUDE.md"
+            exit 1
+          fi
+          echo "✅ cloud/CLAUDE.md untouched"
