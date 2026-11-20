@@ -19,12 +19,14 @@
 set -uo pipefail
 
 # Stage 1's installs each run in a background subshell, whose PID the wait
-# after them must list. Most are guarded by `|| log` (uv's logs per step), and
-# bash ignores set -e in a subshell on the left of ||, so adding it there
-# silently changes nothing. An install that must stop at its first failure
+# after them must list. Most are guarded by `|| log` (uv's and apt's log per
+# step), and bash ignores set -e in a subshell on the left of ||, so adding it
+# there silently changes nothing. An install that must stop at its first failure
 # instead ends every step but the last with &&, so a failure skips the rest
 # and logs the warning; cleanup goes in an EXIT trap, so the chain stays the
-# subshell's last command.
+# subshell's last command. A subshell holding several such chains, as apt's
+# does, wraps each in { } with its own `|| log` instead, so no warning depends
+# on which chain runs last.
 
 log() { echo "[setup] $*"; }
 
@@ -56,24 +58,35 @@ REPO_RAW="https://raw.githubusercontent.com/todofixthis/config-claude-code-cloud
 
 ## --- Stage 1: independent installs, run in parallel ---
 
-# apt-based tools: GitHub CLI (gh).
+# apt-based tools: GitHub CLI (gh) and shellcheck.
 # Not pre-installed on the cloud image (unlike jq/make/unzip/gnupg, which
-# already are). Steps are chained with && (see the top of the file); apt's
-# cleanup runs on exit, whatever the outcome. Any other apt package goes in
-# this stage too: a parallel apt-get would race it for the dpkg lock, and
-# this trap's cleanup.
+# already are). Any other apt package goes in this stage too: a parallel
+# apt-get would race it for the dpkg lock, and this trap's cleanup. Each tool
+# is its own { } || log step (see the top of the file), so neither failure
+# takes out the other or goes unreported. Give a new package a step shaped
+# like shellcheck's, after gh's chain: it reuses the package lists that chain
+# fetched, and fetches them itself if its install fails. shellcheck
+# comes from Ubuntu's archive (0.9.0 on 24.04) rather than upstream's newer
+# GitHub releases, which publish no checksums to verify against. apt's
+# cleanup runs on exit, whatever the outcome.
 (
     set -uo pipefail
     trap 'apt-get clean; rm -rf /var/lib/apt/lists/*' EXIT
-    apt-get update -y &&
-    apt-get install -y --no-install-recommends apt-transport-https ca-certificates gnupg &&
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
-    apt-get update -y &&
-    apt-get install -y --no-install-recommends gh
-) || log "warning: gh install failed, continuing" &
+    {
+        apt-get update -y &&
+        apt-get install -y --no-install-recommends apt-transport-https ca-certificates gnupg &&
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
+        apt-get update -y &&
+        apt-get install -y --no-install-recommends gh
+    } || log "warning: gh install failed, continuing"
+    {
+        apt-get install -y --no-install-recommends shellcheck ||
+        { apt-get update -y && apt-get install -y --no-install-recommends shellcheck; }
+    } || log "warning: shellcheck install failed, continuing"
+) &
 APT_PID=$!
 
 # lefthook: git hooks manager, single binary from the latest release, verified
