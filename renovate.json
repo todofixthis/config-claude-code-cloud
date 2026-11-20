@@ -12,9 +12,21 @@
       "matchStrings": [
         "COSIGN_TAG=(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track .github/workflows/ci.yml's tool pins, each marked by a `# renovate:` comment on the line above it.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\s+\\w+: (?<currentValue>\\S+)"
+      ]
     }
   ],
-  "dependencyDashboardFooter": "Approve a sigstore/cosign bump only after todofixthis/config-paddock's has merged, and merge its PR only at config-paddock's COSIGN_VERSION (see cloud/setup.sh).",
+  "dependencyDashboard": {
+    "footer": "Approve a sigstore/cosign bump only after todofixthis/config-paddock's has merged, and merge its PR only at config-paddock's COSIGN_VERSION (see cloud/setup.sh)."
+  },
   "extends": [
     "config:recommended",
     "helpers:pinGitHubActionDigests"
