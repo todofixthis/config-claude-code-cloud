@@ -134,13 +134,15 @@ jobs:
           persist-credentials: false
 
       # base...head diffs from the merge base, so regenerations the bot pushed
-      # to main after this branch was cut don't count against it.
+      # to main after this branch was cut don't count against it. The base is
+      # the ref fetched now, not the event's base.sha, which can predate a
+      # regeneration the branch has since merged in.
       - name: Check cloud/CLAUDE.md has no hand edits
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: origin/${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          changed=$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" -- cloud/CLAUDE.md)
+          changed=$(git diff --name-only "${BASE_REF}...${HEAD_SHA}" -- cloud/CLAUDE.md)
           if [ -n "$changed" ]; then
             # Single quotes print the git command for the author to run, unexpanded.
             # shellcheck disable=SC2016
