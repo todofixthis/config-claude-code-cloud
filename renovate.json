@@ -42,6 +42,14 @@
         "⚠️ Merge only if this version equals `todofixthis/config-paddock`'s `COSIGN_VERSION`; Renovate offers the newest release, which config-paddock may not have tested yet. Otherwise leave this PR open: Renovate updates it as releases land, but closing it ignores this version for good.",
         "⚠️ Sessions keep the old cosign until the ~7-day setup cache rebuild. To apply it sooner, bump `cloud/pointer.sh`'s version comment in a follow-up PR after merging, then re-paste it into the environment's Setup script field (README.md, \"Making changes\")."
       ]
+    },
+    {
+      "description": "Bump the trufflehog action and the image ci.yml runs it with together, so they don't drift apart.",
+      "groupName": "trufflehog",
+      "matchDepNames": [
+        "ghcr.io/trufflesecurity/trufflehog",
+        "trufflesecurity/trufflehog"
+      ]
     }
   ]
 }

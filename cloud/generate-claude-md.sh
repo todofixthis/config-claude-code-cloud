@@ -13,7 +13,7 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
 {
-    echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md in todofixthis/config-claude-code-cloud, or CLAUDE.shared.md in todofixthis/config-claude, then re-run cloud/generate-claude-md.sh. -->"
+    echo "<!-- GENERATED FILE — do not edit directly. Edit cloud/CLAUDE.cloud-only.md in todofixthis/config-claude-code-cloud, or CLAUDE.shared.md in todofixthis/config-claude, then merge a pull request: a workflow regenerates this file. Running cloud/generate-claude-md.sh writes a preview here; revert it before committing. -->"
     echo
     cat CLAUDE.cloud-only.md
     echo
