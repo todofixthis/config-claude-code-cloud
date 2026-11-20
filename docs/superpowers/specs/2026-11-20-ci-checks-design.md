@@ -53,7 +53,7 @@ The actionlint, Renovate config, and secrets checks download their tools at run 
 ### Changes to existing files
 
 - **`generate-claude-md.yml`.** Add `cloud/generate-claude-md.sh` to its `paths:`. Without it, a pull request that changes the generator can't update `cloud/CLAUDE.md`: the new check blocks the edit, and the regeneration never runs.
-- **`renovate.json`.** Every action is pinned to a commit digest, as `renovate.json` already enforces. Add custom regex managers for the `actionlint` and `renovate` version pins in `ci.yml`, like the existing `COSIGN_TAG` manager, which matches only `cloud/setup.sh`. Renovate's `github-actions` manager tracks `runs-on` labels, so it opens a pull request to move `ubuntu-24.04` to a newer Ubuntu release. That pull request changes the `shellcheck` version, and its CI run shows any new findings.
+- **`renovate.json`.** Every action is pinned to a commit digest, as `renovate.json` already enforces. Add custom regex managers for the `actionlint`, `renovate`, and trufflehog image version pins in `ci.yml`, and group the trufflehog action and image bumps, like the existing `COSIGN_TAG` manager, which matches only `cloud/setup.sh`. Renovate's `github-actions` manager tracks `runs-on` labels, so it opens a pull request to move `ubuntu-24.04` to a newer Ubuntu release. That pull request changes the `shellcheck` version, and its CI run shows any new findings.
 - **`README.md`.** Add `ci.yml` to "Structure", and say that it is no longer the only workflow. Rewrite the "Merging a Renovate PR that touches `.github/workflows/`" item, which says those pull requests get no CI. Record the step below.
 
 ### Required checks
