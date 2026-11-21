@@ -58,6 +58,8 @@ The actionlint, Renovate config, and secrets checks download their tools at run 
 
 ### Required checks
 
+Superseded: a `gate` job, which needs every other job and fails if any of them didn't succeed, became the one required check. The ruleset lists only `gate`.
+
 After the workflow's first run, a person adds each job to the existing `main` ruleset as a required status check, using the exact names that run shows. No session can change the ruleset. Use the existing ruleset, not a new one or a branch-protection rule. The bot's App bypasses only that ruleset, so a separate rule would reject its direct pushes to `main`.
 
 ## Left to the builder
