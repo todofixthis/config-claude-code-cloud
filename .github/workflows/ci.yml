@@ -83,8 +83,8 @@ jobs:
         run: |
           python3 -I - .github/workflows/ci.yml <<'PY'
           import re, sys
-          # No YAML library on the runner's python3, so read the two-space job
-          # keys under `jobs:` and gate's `needs` (flow or block list) directly.
+          # Plain regexes rather than a YAML library the runner's python3 may
+          # lack: read the two-space job keys under `jobs:` and gate's block.
           jobs_text = open(sys.argv[1]).read().split("\njobs:\n", 1)[1]
           blocks = dict(
               (m.group(1).strip("'\""), m.group(2))
@@ -94,13 +94,16 @@ jobs:
               print("❌ no gate job: it must stay, keyed gate, as main's one required check")
               sys.exit(1)
           flow = re.search(r"^    needs:[ \t]*\[([^\]]*)\]", blocks["gate"], re.M)
-          block = re.search(r"^    needs:[ \t]*(?:#.*)?\n((?:      - .*\n)+)", blocks["gate"], re.M)
+          block = re.search(r"^    needs:[ \t]*(?:#.*)?\n((?:    [ \t]*- .*\n)+)", blocks["gate"], re.M)
           if flow:
               needs = {n.strip().strip("'\"") for n in flow.group(1).split(",") if n.strip()}
           elif block:
-              needs = {re.sub(r"\s+#.*", "", n).strip().strip("'\"") for n in re.findall(r"^      - (.*)$", block.group(1), re.M)}
+              needs = {re.sub(r"\s+#.*", "", n).strip().strip("'\"") for n in re.findall(r"^\s+- (.*)$", block.group(1), re.M)}
           else:
-              print("❌ gate has no needs list")
+              print("❌ gate has no needs list: write it as [a, b] or one '- a' item per line")
+              sys.exit(1)
+          if not re.search(r"^    if:[ \t]*\$?\{?\{?[ \t]*always\(\)", blocks["gate"], re.M):
+              print("❌ gate needs `if: always()`: without it a failed job skips gate, and a skipped required check passes")
               sys.exit(1)
           jobs = set(blocks) - {"gate"}
           if jobs != needs:
@@ -185,7 +188,9 @@ jobs:
   # The one required status check on main. Depending on every job here
   # collapses their results into one, so main's ruleset lists only this job:
   # a new job needs adding to `needs`, not to the ruleset. A skipped job fails
-  # it, so a job silently skipped can't pass unnoticed.
+  # it, so a job silently skipped can't pass unnoticed. `if: always()` is
+  # load-bearing: without it a failed job skips gate itself, and GitHub counts
+  # a skipped required check as passing.
   gate:
     needs: [generated, renovate, secrets, shell, workflows]
     if: always()
