@@ -9,9 +9,12 @@
 #
 # The environment only re-runs its Setup script (and rebuilds its cached
 # snapshot) when THIS text changes — not when the remote setup.sh below
-# changes. So: after editing cloud/setup.sh, cloud/CLAUDE.md, or
-# cloud/gh-config.yml in this repo, bump the version comment above and
-# re-paste this file into the environment dialog to force a fresh run.
+# changes. So: after a pull request editing cloud/setup.sh or
+# cloud/gh-config.yml merges, bump the version comment above in a follow-up
+# pull request, then re-paste this file into the environment dialog to force
+# a fresh run. A cloud/CLAUDE.md regeneration bumps the comment itself, so
+# only the re-paste is left. Keep the "# Bootstrap version:" prefix as is:
+# .github/workflows/generate-claude-md.yml's sed matches it.
 
 # Download to a file before running it: piped straight into bash, the fetch
 # would stay open while setup.sh runs, and the time limit could cut the

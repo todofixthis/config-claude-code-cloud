@@ -1,0 +1,206 @@
+---
+name: CI
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Tool pins. Each `# renovate:` comment feeds renovate.json's regex manager
+# for this file; keep the comment directly above its variable. Node is pinned
+# in the Renovate config job, where Renovate's github-actions manager tracks it.
+env:
+  # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
+  ACTIONLINT_VERSION: 1.7.12
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.257.5
+  # renovate: datasource=docker depName=ghcr.io/trufflesecurity/trufflehog
+  TRUFFLEHOG_VERSION: 3.100.0
+
+jobs:
+  shell:
+    name: Shell scripts
+    # ubuntu-24.04, not ubuntu-latest: the preinstalled shellcheck comes from
+    # Ubuntu's own packages, so its version changes only with this label.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run bash -n and shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "❌ git ls-files found no *.sh files to check"
+            exit 1
+          fi
+          echo "▶️ checking ${#scripts[@]} scripts with shellcheck $(shellcheck --version | awk '/^version:/ {print $2}')"
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+          shellcheck "${scripts[@]}"
+          echo "✅ shell scripts pass"
+
+  workflows:
+    name: Workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfL --retry 3 -o "$tarball" "$base/$tarball"
+          curl -sSfL --retry 3 -o checksums.txt "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          # The checksums file comes from the same release: this catches a
+          # corrupt download, not a compromised release.
+          awk -v f="$tarball" '$2 == f' checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" actionlint
+          echo "✅ installed actionlint ${ACTIONLINT_VERSION}"
+
+      - name: Run actionlint
+        run: |
+          "$RUNNER_TEMP/actionlint"
+          echo "✅ workflows pass"
+
+      # A job missing from gate's needs never blocks a merge, since gate is the
+      # only required check.
+      - name: Check gate needs every other job
+        run: |
+          python3 -I - .github/workflows/ci.yml <<'PY'
+          import re, sys
+          # Plain regexes rather than a YAML library the runner's python3 may
+          # lack: read the two-space job keys under `jobs:` and gate's block.
+          jobs_text = open(sys.argv[1]).read().split("\njobs:\n", 1)[1]
+          blocks = dict(
+              (m.group(1).strip("'\""), m.group(2))
+              for m in re.finditer(r"^  (['\"]?[\w-]+['\"]?):[ \t]*(?:#.*)?\n((?:(?:    .*)?\n)*)", jobs_text, re.M)
+          )
+          if "gate" not in blocks:
+              print("❌ no gate job: it must stay, keyed gate, as main's one required check")
+              sys.exit(1)
+          flow = re.search(r"^    needs:[ \t]*\[([^\]]*)\]", blocks["gate"], re.M)
+          block = re.search(r"^    needs:[ \t]*(?:#.*)?\n((?:    [ \t]*- .*\n)+)", blocks["gate"], re.M)
+          if flow:
+              needs = {n.strip().strip("'\"") for n in flow.group(1).split(",") if n.strip()}
+          elif block:
+              needs = {re.sub(r"\s+#.*", "", n).strip().strip("'\"") for n in re.findall(r"^\s+- (.*)$", block.group(1), re.M)}
+          else:
+              print("❌ gate has no needs list: write it as [a, b] or one '- a' item per line")
+              sys.exit(1)
+          if not re.search(r"^    if:[ \t]*\$?\{?\{?[ \t]*always\(\)", blocks["gate"], re.M):
+              print("❌ gate needs `if: always()`: without it a failed job skips gate, and a skipped required check passes")
+              sys.exit(1)
+          jobs = set(blocks) - {"gate"}
+          if jobs != needs:
+              print(f"❌ gate's needs {sorted(needs)} must equal the other jobs {sorted(jobs)}")
+              sys.exit(1)
+          print(f"✅ gate needs all {len(jobs)} jobs")
+          PY
+
+  renovate:
+    name: Renovate config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.3
+
+      # No file argument: given one, the validator checks it as global config
+      # rather than repo config.
+      - name: Run renovate-config-validator
+        run: |
+          npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator --strict
+          echo "✅ renovate.json passes"
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # On pull_request the action scans base.sha to head.sha itself.
+      # --results=verified: unverified results are pattern matches, and
+      # unknown ones come from failed verification calls such as a network
+      # error, so failing on either would fail PRs with nothing wrong in them.
+      - name: Run trufflehog
+        uses: trufflesecurity/trufflehog@d232362a64a09a9e7d58267b8f5acef00ae90e23 # v3.100.0
+        with:
+          extra_args: --results=verified
+          version: ${{ env.TRUFFLEHOG_VERSION }}
+
+  generated:
+    name: Generated files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # base...head diffs from the merge base, so regenerations the bot pushed
+      # to main after this branch was cut don't count against it. The base is
+      # the ref fetched now, not the event's base.sha, which can predate a
+      # regeneration the branch has since merged in.
+      - name: Check cloud/CLAUDE.md has no hand edits
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed=$(git diff --name-only "${BASE_REF}...${HEAD_SHA}" -- cloud/CLAUDE.md)
+          if [ -n "$changed" ]; then
+            # Single quotes print the git command for the author to run, unexpanded.
+            # shellcheck disable=SC2016
+            echo '::error file=cloud/CLAUDE.md::cloud/CLAUDE.md is generated. Revert it (git checkout "$(git merge-base origin/main HEAD)" -- cloud/CLAUDE.md), and edit cloud/CLAUDE.cloud-only.md, or CLAUDE.shared.md in todofixthis/config-claude for shared content; a workflow regenerates cloud/CLAUDE.md after merge.'
+            echo "❌ this pull request edits cloud/CLAUDE.md"
+            exit 1
+          fi
+          echo "✅ cloud/CLAUDE.md untouched"
+
+  # The one required status check on main. Depending on every job here
+  # collapses their results into one, so main's ruleset lists only this job:
+  # a new job needs adding to `needs`, not to the ruleset. A skipped job fails
+  # it, so a job silently skipped can't pass unnoticed. `if: always()` is
+  # load-bearing: without it a failed job skips gate itself, and GitHub counts
+  # a skipped required check as passing.
+  gate:
+    needs: [generated, renovate, secrets, shell, workflows]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Each of the three results is load-bearing: drop `failure` and red CI
+      # merges; drop `cancelled` or `skipped` and a job that never ran passes.
+      - name: Fail if any check did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "❌ a check did not succeed: ${{ toJSON(needs.*.result) }}"
+          exit 1

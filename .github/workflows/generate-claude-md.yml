@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/generate-claude-md.yml
       - cloud/CLAUDE.cloud-only.md
+      - cloud/generate-claude-md.sh
   workflow_dispatch: {}
 
 # Default GITHUB_TOKEN goes unused below — the checkout and push both run
