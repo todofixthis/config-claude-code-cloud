@@ -20,7 +20,7 @@ env:
   # renovate: datasource=npm depName=renovate
   RENOVATE_VERSION: 44.257.5
   # renovate: datasource=docker depName=ghcr.io/trufflesecurity/trufflehog
-  TRUFFLEHOG_VERSION: 3.100.0
+  TRUFFLEHOG_VERSION: 3.100.1
 
 jobs:
   shell:
@@ -150,7 +150,7 @@ jobs:
       # unknown ones come from failed verification calls such as a network
       # error, so failing on either would fail PRs with nothing wrong in them.
       - name: Run trufflehog
-        uses: trufflesecurity/trufflehog@d232362a64a09a9e7d58267b8f5acef00ae90e23 # v3.100.0
+        uses: trufflesecurity/trufflehog@4ef51f69ca6347aaa76a5e64a87eac9c0c909f71 # v3.100.1
         with:
           extra_args: --results=verified
           version: ${{ env.TRUFFLEHOG_VERSION }}
